@@ -1,0 +1,26 @@
+# Node modules for both server and client
+node_modules/
+**/node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+
+# Build directories (if you decide to add a build step later)
+dist/
+build/
+client/dist/
+
+# Temporary files
+*.tmp
+*.swp

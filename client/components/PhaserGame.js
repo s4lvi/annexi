@@ -86,6 +86,16 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
               }
               graphics.closePath();
               graphics.fillPath();
+              if (tile.city) {
+                graphics.fillStyle(0xffff00, 1); // Yellow for cities
+                graphics.beginPath();
+                graphics.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i++) {
+                  graphics.lineTo(points[i].x, points[i].y);
+                }
+                graphics.closePath();
+                graphics.fillPath();
+              }
             }
           }
           // Instantiate and register ControlsManager.

@@ -4,71 +4,78 @@ import React, {
   forwardRef,
   useImperativeHandle,
 } from "react";
-
 import gameState from "./gameState";
+
+// Base city card definition (cost now 10 production)
+const baseCityCard = {
+  id: "base-city",
+  name: "Base City",
+  type: "city",
+  cost: { production: 10 },
+  effect: "Establish your capital city.",
+};
 
 const PhaseUI = forwardRef(
   (
     {
       phase,
-      resourcesData,
+      resourcesData, // Expected: { production, cards: { citycards, resourcestructures, defensivestructures, units, effects } }
+      cityBuilt, // New prop from GameContainer
       onCityPlacement,
       onCardSelected,
       onCancelPlacement,
     },
     ref
   ) => {
-    const [cityPlaced, setCityPlaced] = useState(false);
+    // Local state for when the player is in the process of placing a city.
     const [placingCity, setPlacingCity] = useState(false);
-    const [uiHidden, setUIHidden] = useState(false);
 
     useEffect(() => {
       if (phase !== "expand") {
-        setCityPlaced(false);
         setPlacingCity(false);
-        setUIHidden(false);
       }
     }, [phase]);
 
+    // Called when the user clicks the base city card.
     const handleBuildCityClick = () => {
       setPlacingCity(true);
-      setUIHidden(true);
+      // Hide the rest of the UI while placing.
       gameState.setPlacingCity(true);
     };
 
-    // This function is now exposed to the parent
+    // This function is exposed to the parent (GameContainer) to be used when a map tile is clicked.
     const handleMapClick = (tileInfo) => {
-      console.log("phaseui Map clicked at", tileInfo, placingCity);
+      //console.log("PhaseUI: Map clicked at", tileInfo, placingCity);
       if (placingCity) {
         const valid = validateCityPlacement(tileInfo);
         console.log("Valid city placement:", valid);
         if (valid) {
-          setCityPlaced(true);
-          setPlacingCity(false);
-          setUIHidden(false);
-          document.body.style.cursor = "default";
-          // Call the parent's callback to send the message to the server
+          // We do not immediately mark the city as built.
+          // We call onCityPlacement and wait for the server's buildCitySuccess response.
           onCityPlacement(tileInfo);
+          setPlacingCity(false);
+          gameState.setPlacingCity(false);
         }
       }
     };
 
-    // Expose handleMapClick so that GameContainer can call it
+    // Expose handleMapClick to the parent.
     useImperativeHandle(ref, () => ({
       handleMapClick,
     }));
 
     const handleCancel = () => {
       setPlacingCity(false);
-      setUIHidden(false);
       document.body.style.cursor = "default";
+      gameState.setPlacingCity(false);
       if (onCancelPlacement) {
         onCancelPlacement();
       }
     };
 
+    // Container classes for UI transition.
     const containerClasses = `absolute bottom-0 left-0 w-full h-1/3 bg-black bg-opacity-60 flex flex-col items-center justify-center z-20 transition-transform duration-500 ${
-      uiHidden ? "translate-y-full" : "translate-y-0"
+      placingCity ? "translate-y-0" : ""
     }`;
 
     if (phase === "expand") {
@@ -90,35 +97,46 @@ const PhaseUI = forwardRef(
             </div>
           )}
           <div className={containerClasses}>
-            {!cityPlaced && !placingCity && (
+            {/* If no city has been built yet and not currently placing one, show Base City card */}
+            {!cityBuilt && !placingCity && (
               <div
-                className="bg-gray-800 text-white p-5 m-3 rounded-lg text-center cursor-pointer"
+                className="bg-gray-800 text-white p-5 m-3 rounded-lg text-center cursor-pointer hover:bg-gray-700"
                 onClick={handleBuildCityClick}
               >
-                <h3 className="text-lg font-semibold">Build City</h3>
-                <p>Click to place a new city in your territory.</p>
+                <h3 className="text-lg font-semibold">{baseCityCard.name}</h3>
+                <p>{baseCityCard.effect}</p>
+                <p className="text-sm">
+                  Cost: {baseCityCard.cost.production} Production
+                </p>
               </div>
             )}
 
-            {cityPlaced && resourcesData?.cards && (
+            {/* Once the city is built, show available cards for purchase */}
+            {cityBuilt && resourcesData?.cards && (
               <div className="flex flex-wrap justify-center">
-                {resourcesData.cards.map((card, index) => {
-                  const affordable = resourcesData.production >= card.cost;
-                  return (
-                    <div
-                      key={index}
-                      className={`bg-gray-800 text-white p-5 m-3 rounded-lg text-center cursor-pointer transition-opacity duration-300 ${
-                        affordable
-                          ? "opacity-100"
-                          : "opacity-50 pointer-events-none"
-                      }`}
-                      onClick={() => onCardSelected(card)}
-                    >
-                      <h4 className="text-lg font-semibold">{card.name}</h4>
-                      <p>Cost: {card.cost} Production</p>
-                    </div>
-                  );
-                })}
+                {Object.entries(resourcesData.cards).map(([group, cards]) =>
+                  cards.map((card, index) => {
+                    const affordable =
+                      resourcesData.production >= card.cost.production;
+                    return (
+                      <div
+                        key={`${group}-${index}`}
+                        className={`bg-gray-800 text-white p-5 m-3 rounded-lg text-center cursor-pointer transition-opacity duration-300 ${
+                          affordable
+                            ? "opacity-100"
+                            : "opacity-50 pointer-events-none"
+                        }`}
+                        onClick={() => onCardSelected(card)}
+                      >
+                        <h4 className="text-lg font-semibold">{card.name}</h4>
+                        <p className="text-sm">
+                          Cost: {card.cost.production} Production
+                        </p>
+                        <p className="text-xs">{card.effect}</p>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             )}
           </div>

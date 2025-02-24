@@ -7,6 +7,7 @@ import io from "socket.io-client";
 import { Check } from "lucide-react";
 import PhaseUI from "../../components/PhaseUi";
 import gameState from "../../components/gameState";
+
 // Dynamically import the PhaserGame component
 const PhaserGame = dynamic(() => import("../../components/PhaserGame"), {
   ssr: false,
@@ -25,6 +26,8 @@ export default function GameContainer() {
   const [message, setMessage] = useState("");
   const [resourcesData, setResourcesData] = useState(null);
   const [timer, setTimer] = useState(null);
+  const [user, setUser] = useState(null);
+  const [cityBuilt, setCityBuilt] = useState(false); // New state for whether the city was successfully built
 
   // Create a ref to access PhaseUI's handleMapClick
   const phaseUIRef = useRef(null);
@@ -36,7 +39,6 @@ export default function GameContainer() {
 
     if (storedMapData && storedPlayers && queryLobbyId) {
       const parsedMapData = JSON.parse(storedMapData);
-      //console.log("Loaded map data from localStorage", parsedMapData);
       setMapData(parsedMapData);
       setPlayers(JSON.parse(storedPlayers));
       setLobbyId(queryLobbyId);
@@ -63,6 +65,7 @@ export default function GameContainer() {
     // Connect to Socket.IO for real-time updates
     socket = io(process.env.NEXT_PUBLIC_BACKEND_URL);
     const user = JSON.parse(localStorage.getItem("user"));
+    setUser(user);
     socket.emit("joinLobby", {
       lobbyId: lobbyId || queryLobbyId,
       username: user?.username,
@@ -83,8 +86,72 @@ export default function GameContainer() {
       gameState.setPhase(data.phase);
     });
 
-    socket.on("resources", (data) => {
-      setResourcesData(data);
+    // When the game starts or re-joins mid-phase, update game state & available cards.
+    socket.on("gameStarted", (data) => {
+      console.log("Game started/rejoined:", data);
+      if (data.mapData) {
+        setMapData(data.mapData);
+      }
+      if (data.players) {
+        setPlayers(data.players);
+      }
+      if (data.phase) {
+        setPhase(data.phase);
+        gameState.setPhase(data.phase);
+      }
+      if (data.phaseDuration) {
+        setTimer(data.phaseDuration);
+      }
+      if (data.cards) {
+        // Update local state and global gameState with the grouped card data.
+        setResourcesData({
+          ...data.cards,
+          production: data.production, // assume backend sends player's current production
+        });
+        gameState.setResources({
+          production: data.production,
+          cards: data.cards,
+        });
+      }
+    });
+
+    // Listen for resource updates.
+    socket.on("resourceUpdate", (data) => {
+      console.log(resourcesData);
+      setResourcesData((prev) => ({
+        ...prev,
+        production: data.production,
+      }));
+      gameState.setResources((prev) => ({
+        ...prev,
+        production: data.production,
+      }));
+    });
+
+    socket.on("buildCitySuccess", (data) => {
+      console.log("City build succeeded:", data);
+      const { type, level, x, y } = data;
+      setMapData((prevMap) => {
+        if (!prevMap) return prevMap;
+        const newMap = prevMap.map((row) =>
+          row.map((tile) => {
+            // Match tile based on x and y coordinates.
+            if (tile.x === x && tile.y === y) {
+              // Add a city property to the tile.
+              return { ...tile, city: { type, level, x, y } };
+            }
+            return tile;
+          })
+        );
+        return newMap;
+      });
+      setCityBuilt(true);
+    });
+
+    socket.on("buildCityError", (data) => {
+      console.error("City build failed:", data);
+      // Reset the city build flag so the UI goes back to the base city card stage.
+      setCityBuilt(false);
     });
 
     return () => {
@@ -108,17 +175,16 @@ export default function GameContainer() {
     return () => clearInterval(countdownInterval);
   }, [timer]);
 
-  // This will be called by PhaseUI when a valid city placement is made
+  // Called by PhaseUI when a valid city placement is made.
   const handleCityPlacement = (tileInfo) => {
     console.log("City placed at", tileInfo);
-    // Emit a message to your server (e.g., "buildCity") with the tileInfo
-    socket.emit("buildCity", { lobbyId, tile: tileInfo });
+    // Emit buildCity request; waiting for server response to update UI.
+    socket.emit("buildCity", { lobbyId, tile: tileInfo, _id: user?._id });
   };
 
   const handleCardSelected = (card) => {
     console.log("Card selected:", card);
-    // Emit card selection to the server as needed.
-    socket.emit("selectCard", { lobbyId, card });
+    socket.emit("buyCard", { lobbyId, card });
   };
 
   const handleCancelPlacement = () => {
@@ -127,7 +193,6 @@ export default function GameContainer() {
 
   // This onMapClick is passed to PhaserGame. It will forward tile clicks from ControlsManager.
   const handleMapClick = (tileInfo) => {
-    // Call the PhaseUI's exposed method if it exists.
     if (phaseUIRef.current) {
       phaseUIRef.current.handleMapClick(tileInfo);
     }
@@ -152,11 +217,12 @@ export default function GameContainer() {
         onMapClick={handleMapClick}
       />
 
-      {/* PhaseUI with ref */}
+      {/* PhaseUI with ref and cityBuilt prop */}
       <PhaseUI
         ref={phaseUIRef}
         phase={phase}
         resourcesData={resourcesData}
+        cityBuilt={cityBuilt}
         onCityPlacement={handleCityPlacement}
         onCardSelected={handleCardSelected}
         onCancelPlacement={handleCancelPlacement}

@@ -1,16 +1,11 @@
 // server/models/user.js
-class User {
-  constructor(username, password) {
-    this.id = User.incrementId();
-    this.username = username;
-    this.password = password; // Reminder: hash passwords in production!
-    this.createdAt = new Date();
-  }
+const mongoose = require("mongoose");
 
-  static incrementId() {
-    User.currentId = (User.currentId || 0) + 1;
-    return User.currentId;
-  }
-}
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true }, // Reminder: hash passwords in production!
+  createdAt: { type: Date, default: Date.now },
+});
 
-module.exports = User;
+module.exports = mongoose.model("User", userSchema);

@@ -1,18 +1,17 @@
 // server/models/lobby.js
-class Lobby {
-  constructor(name, hostUserId) {
-    this.id = Lobby.incrementId();
-    this.name = name;
-    this.hostUserId = hostUserId;
-    this.players = [hostUserId];
-    this.createdAt = new Date();
-    this.mapData = null;
-  }
+const mongoose = require("mongoose");
 
-  static incrementId() {
-    Lobby.currentId = (Lobby.currentId || 0) + 1;
-    return Lobby.currentId;
-  }
-}
+const lobbySchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  hostUserId: {
+    type: mongoose.Schema.Types.Mixed,
+    ref: "User",
+    required: true,
+  },
+  players: [{ type: mongoose.Schema.Types.Mixed, ref: "User" }],
+  createdAt: { type: Date, default: Date.now },
+  mapData: { type: Array, default: [] },
+  gameStarted: { type: Boolean, default: false }, // New field
+});
 
-module.exports = Lobby;
+module.exports = mongoose.model("Lobby", lobbySchema);

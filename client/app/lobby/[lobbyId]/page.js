@@ -13,6 +13,7 @@ export default function LobbyRoom() {
   const [players, setPlayers] = useState([]);
   const [message, setMessage] = useState("");
   const [currentUser, setCurrentUser] = useState(null);
+  const [lobbyName, setLobbyName] = useState("");
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
 
@@ -54,10 +55,6 @@ export default function LobbyRoom() {
     }
 
     return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
       joinedRef.current = false;
     };
   }, [lobbyId, currentUser, router]);
@@ -70,6 +67,8 @@ export default function LobbyRoom() {
         if (data.lobby && data.lobby.gameStarted) {
           router.push(`/game?lobbyId=${lobbyId}`);
         }
+        console.log("Lobby data:", data);
+        setLobbyName(data.lobby.name);
       })
       .catch((err) => {
         console.error("Error checking lobby state", err);
@@ -124,7 +123,7 @@ export default function LobbyRoom() {
               </div>
               <div>
                 <h2 className="text-3xl font-bold text-secondary-400">
-                  Battle Room
+                  Battle Room: {lobbyName}
                 </h2>
                 <p className="text-neutral-400 mt-1">
                   Waiting for players to join...

@@ -1,13 +1,19 @@
 // components/PhaserGame.js
 "use client";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import * as Phaser from "phaser";
 import ControlsManager from "./ControlsManager";
+import gameState from "./gameState";
+import HexTileHighlighter from "./HexTileHighlighter";
 
-export default function PhaserGame({ mapData, matchId }) {
+export default function PhaserGame({ mapData, matchId, onMapClick }) {
+  const gameRef = useRef(null);
   useEffect(() => {
     if (!mapData) return;
-
+    if (gameRef.current) {
+      gameRef.current.destroy(true);
+      gameRef.current = null;
+    }
     const hexRadius = 20;
     const hexWidth = 2 * hexRadius;
     const hexHeight = Math.sqrt(3) * hexRadius;
@@ -18,14 +24,6 @@ export default function PhaserGame({ mapData, matchId }) {
     // Center the map in the full-window canvas.
     const offsetX = (window.innerWidth - totalWidth) / 2;
     const offsetY = (window.innerHeight - totalHeight) / 2;
-    const hexagonPoints = [
-      { x: -hexRadius, y: 0 },
-      { x: -hexRadius / 2, y: (-hexRadius * Math.sqrt(3)) / 2 },
-      { x: hexRadius / 2, y: (-hexRadius * Math.sqrt(3)) / 2 },
-      { x: hexRadius, y: 0 },
-      { x: hexRadius / 2, y: (hexRadius * Math.sqrt(3)) / 2 },
-      { x: -hexRadius / 2, y: (hexRadius * Math.sqrt(3)) / 2 },
-    ];
     // Store offsets in registry for ControlsManager
     const config = {
       type: Phaser.AUTO,
@@ -34,11 +32,12 @@ export default function PhaserGame({ mapData, matchId }) {
       parent: "phaser-game",
       scene: {
         create: function () {
-          // Save offsets in registry so they can be used in hit tests
+          // Set up registry values that never change
           this.registry.set("offsetX", offsetX);
           this.registry.set("offsetY", offsetY);
           this.registry.set("mapCols", mapData[0]?.length || 0);
           this.registry.set("mapRows", mapData.length);
+          this.registry.set("mapData", mapData);
 
           this.cameras.main.setZoom(1);
           const graphics = this.add.graphics();
@@ -47,7 +46,25 @@ export default function PhaserGame({ mapData, matchId }) {
             mountain: 0x888888,
             water: 0x3366cc,
           };
+          const hexRadius = 20;
+          const hexagonPoints = [
+            { x: -hexRadius, y: 0 },
+            { x: -hexRadius / 2, y: (-hexRadius * Math.sqrt(3)) / 2 },
+            { x: hexRadius / 2, y: (-hexRadius * Math.sqrt(3)) / 2 },
+            { x: hexRadius, y: 0 },
+            { x: hexRadius / 2, y: (hexRadius * Math.sqrt(3)) / 2 },
+            { x: -hexRadius / 2, y: (hexRadius * Math.sqrt(3)) / 2 },
+          ];
 
+          // Instantiate the highlighter.
+          const highlighter = new HexTileHighlighter(
+            this,
+            hexagonPoints,
+            hexRadius,
+            offsetX,
+            offsetY
+          );
+          this.highlighter = highlighter;
           for (let row = 0; row < mapData.length; row++) {
             for (let col = 0; col < mapData[row].length; col++) {
               const tile = mapData[row][col];
@@ -71,55 +88,29 @@ export default function PhaserGame({ mapData, matchId }) {
               graphics.fillPath();
             }
           }
-
-          // Instantiate and register the ControlsManager.
-          const controlsManager = new ControlsManager(this);
+          // Instantiate and register ControlsManager.
+          const controlsManager = new ControlsManager(this, onMapClick);
           controlsManager.register();
 
-          // Tooltip example for debugging pointer coordinates
-          const tooltip = this.add
-            .text(0, 0, "", {
-              font: "16px Arial",
-              fill: "#ffffff",
-              backgroundColor: "#000000",
-              padding: { x: 4, y: 2 },
-            })
-            .setDepth(1)
-            .setScrollFactor(0);
-          const tileSelector = this.add.graphics();
+          // Optionally subscribe to gameState updates
+          gameState.subscribe(({ phase, placingCity }) => {
+            this.registry.set("phase", phase);
+            this.registry.set("placingCity", placingCity);
+          });
 
+          // Use pointermove to update highlight.
           this.input.on("pointermove", (pointer) => {
             const tile = controlsManager.getTileAt(pointer.x, pointer.y);
-            const camera = this.cameras.main;
-            tileSelector.clear();
-            // Add zoom level to debug output
-            tooltip.setText(`(${tile.col}, ${tile.row})`);
-
-            tooltip.setScale(1 / camera.zoom);
-
-            // Try using camera's viewport coordinates
-            const viewportX = pointer.worldX - camera.scrollX;
-            const viewportY = pointer.worldY - camera.scrollY;
-            tooltip.setPosition(viewportX + 10, viewportY + 10);
-
-            const centerX = tile.col * (hexWidth * 0.75) + hexRadius + offsetX;
-            const centerY =
-              tile.row * hexHeight +
-              (tile.col % 2 ? hexHeight / 2 : 0) +
-              hexHeight / 2 +
-              offsetY;
-            const points = hexagonPoints.map((p) => ({
-              x: p.x + centerX,
-              y: p.y + centerY,
-            }));
-            tileSelector.lineStyle(2, 0x00ff00, 1);
-            tileSelector.beginPath();
-            tileSelector.moveTo(points[0].x, points[0].y);
-            for (let i = 1; i < points.length; i++) {
-              tileSelector.lineTo(points[i].x, points[i].y);
+            // Only highlight if in expand phase and placingCity is true.
+            if (
+              this.registry.get("phase") === "expand" &&
+              this.registry.get("placingCity")
+            ) {
+              const isValid = tile.type === "grass"; // or your validateCityPlacement(tile)
+              highlighter.updateHighlight(tile, isValid);
+            } else {
+              highlighter.hideHighlight();
             }
-            tileSelector.closePath();
-            tileSelector.strokePath();
           });
         },
       },
@@ -127,6 +118,7 @@ export default function PhaserGame({ mapData, matchId }) {
 
     const game = new Phaser.Game(config);
 
+    gameRef.current = game;
     const handleResize = () => {
       game.scale.resize(window.innerWidth, window.innerHeight);
     };
@@ -134,9 +126,12 @@ export default function PhaserGame({ mapData, matchId }) {
 
     return () => {
       window.removeEventListener("resize", handleResize);
-      game.destroy(true);
+      if (gameRef.current) {
+        gameRef.current.destroy(true);
+        gameRef.current = null;
+      }
     };
-  }, [mapData, matchId]);
+  }, [mapData, matchId, onMapClick]);
 
   return (
     <div

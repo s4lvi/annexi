@@ -41,7 +41,7 @@ export default function Header() {
           <div className="flex items-center gap-4">
             {user && !user.isGuest && (
               <>
-                <div className="hidden sm:block">
+                <div className="hidden sm:inline">
                   <span className="text-neutral-400">Welcome,</span>{" "}
                   <span className="text-secondary-400">{user.username}</span>
                 </div>

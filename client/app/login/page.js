@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
+import { UserIcon, MailIcon, LockIcon, Loader } from "lucide-react";
 
 export default function LoginPage() {
   const [mode, setMode] = useState("login");
@@ -11,10 +12,14 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsLoading(true);
+    setMessage("");
+
     const endpoint =
       mode === "login"
         ? `${process.env.NEXT_PUBLIC_BACKEND_URL}api/auth/login`
@@ -41,6 +46,8 @@ export default function LoginPage() {
     } catch (err) {
       console.error(err);
       setMessage("Error connecting to server");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -49,6 +56,17 @@ export default function LoginPage() {
       <Header />
       <div className="container mx-auto px-4 py-8 flex justify-center items-center">
         <div className="bg-neutral-800 rounded-xl shadow-gold-lg w-full max-w-md p-8 border border-secondary-500/20">
+          <div className="text-center mb-8">
+            <h1 className="text-2xl font-bold text-secondary-400 mb-2">
+              {mode === "login" ? "Welcome Back!" : "Create Account"}
+            </h1>
+            <p className="text-neutral-400">
+              {mode === "login"
+                ? "Enter your credentials to continue"
+                : "Fill in your details to get started"}
+            </p>
+          </div>
+
           <div className="flex justify-around mb-8">
             <button
               className={`px-6 py-2 font-semibold transition-colors ${
@@ -73,7 +91,7 @@ export default function LoginPage() {
           </div>
 
           {message && (
-            <div className="bg-accent-900/20 border border-accent-500 text-accent-400 px-4 py-3 rounded mb-4">
+            <div className="bg-accent-900/20 border border-accent-500 text-accent-400 px-4 py-3 rounded-lg mb-6">
               {message}
             </div>
           )}
@@ -83,22 +101,70 @@ export default function LoginPage() {
               <label className="block text-sm font-medium text-neutral-300 mb-1">
                 Username
               </label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-4 py-2 bg-neutral-700 border border-neutral-600 text-neutral-100 rounded-lg focus:ring-2 focus:ring-secondary-500 focus:border-secondary-500"
-                required
-              />
+              <div className="relative">
+                <UserIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-neutral-400" />
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 bg-neutral-700 border border-neutral-600 text-neutral-100 rounded-lg focus:ring-2 focus:ring-secondary-500 focus:border-secondary-500 placeholder-neutral-500"
+                  placeholder="Enter your username"
+                  required
+                />
+              </div>
             </div>
 
-            {/* ... similar styling for email and password inputs ... */}
+            {mode === "register" && (
+              <div>
+                <label className="block text-sm font-medium text-neutral-300 mb-1">
+                  Email
+                </label>
+                <div className="relative">
+                  <MailIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-neutral-400" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 bg-neutral-700 border border-neutral-600 text-neutral-100 rounded-lg focus:ring-2 focus:ring-secondary-500 focus:border-secondary-500 placeholder-neutral-500"
+                    placeholder="Enter your email"
+                    required
+                  />
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-300 mb-1">
+                Password
+              </label>
+              <div className="relative">
+                <LockIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-neutral-400" />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 bg-neutral-700 border border-neutral-600 text-neutral-100 rounded-lg focus:ring-2 focus:ring-secondary-500 focus:border-secondary-500 placeholder-neutral-500"
+                  placeholder="Enter your password"
+                  required
+                />
+              </div>
+            </div>
 
             <button
               type="submit"
-              className="w-full bg-primary-600 hover:bg-primary-700 text-white py-3 rounded-lg font-semibold transition-colors shadow-gold hover:shadow-gold-lg"
+              disabled={isLoading}
+              className="w-full bg-primary-600 hover:bg-primary-700 text-white py-3 rounded-lg font-semibold transition-all shadow-gold hover:shadow-gold-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              {mode === "login" ? "Login" : "Create Account"}
+              {isLoading ? (
+                <>
+                  <Loader className="w-5 h-5 animate-spin" />
+                  <span>Processing...</span>
+                </>
+              ) : mode === "login" ? (
+                "Login"
+              ) : (
+                "Create Account"
+              )}
             </button>
           </form>
         </div>

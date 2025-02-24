@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Header from "@/components/Header";
-import { Users, Crown, Play, UserX } from "lucide-react";
+import { Users, Swords, Crown, Play, UserX } from "lucide-react";
 import io from "socket.io-client";
 
 export default function LobbyRoom() {

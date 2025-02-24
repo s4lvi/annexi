@@ -2,11 +2,20 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import Image from "next/image";
 
 export default function LandingPage() {
   const router = useRouter();
-
+  const user =
+    typeof window !== "undefined"
+      ? JSON.parse(localStorage.getItem("user"))
+      : null;
+  useEffect(() => {
+    if (user) {
+      router.push("/lobby");
+    }
+  }, [user]);
   const playAsGuest = () => {
     // Generate a random guest username
     const guestUser = {

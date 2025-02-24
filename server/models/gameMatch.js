@@ -8,13 +8,13 @@ const gameMatchSchema = new mongoose.Schema({
     required: true,
   },
   hostUserId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: mongoose.Schema.Types.Mixed,
     ref: "User",
     required: true,
   },
   players: [
     {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed,
       ref: "User",
     },
   ],

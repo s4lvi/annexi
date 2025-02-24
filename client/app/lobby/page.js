@@ -57,9 +57,7 @@ export default function LobbyPage() {
       const data = await res.json();
       if (res.ok) {
         setMessage("Lobby created successfully");
-        setLobbyName("");
-        fetchLobbies();
-      } else {
+        router.push(`/lobby/${data.lobby._id}`);
         setMessage(data.message);
       }
     } catch (err) {

@@ -6,7 +6,7 @@ import io from "socket.io-client";
 import { Check } from "lucide-react";
 import PhaseUI from "../../components/PhaseUi";
 import { useGameState } from "../../components/gameState";
-
+import ResourceBar from "../../components/ResourceBar";
 // Dynamically import the PhaserGame component.
 const PhaserGame = dynamic(() => import("../../components/PhaserGame"), {
   ssr: false,
@@ -21,12 +21,12 @@ export default function GameContainer() {
   const { state, dispatch } = useGameState();
   const { mapData, players, phase, currentPlayerId } = state;
   const [message, setMessage] = useState("");
-  const [timer, setTimer] = useState(null);
   const [user, setUser] = useState(null);
+  const [production, setProduction] = useState(0);
   const prevLobbyIdRef = useRef(null);
 
   // Get the current player for display purposes
-  const currentPlayer = players.find((p) => p.id === currentPlayerId);
+  const currentPlayer = players.find((p) => p._id === currentPlayerId);
 
   const phaseUIRef = useRef(null);
 
@@ -90,6 +90,54 @@ export default function GameContainer() {
       _id: userFromStorage?._id,
     });
 
+    socket.emit("requestFullState", {
+      lobbyId: queryLobbyId,
+      _id: userFromStorage?._id,
+    });
+
+    socket.on("fullStateUpdate", (data) => {
+      console.log("Received full state update:", data);
+
+      if (data.mapData) {
+        dispatch({ type: "SET_MAPDATA", payload: data.mapData });
+      }
+
+      if (data.players) {
+        dispatch({ type: "SET_PLAYERS", payload: data.players });
+      }
+
+      if (data.phase) {
+        dispatch({ type: "SET_PHASE", payload: data.phase });
+      }
+
+      if (data.cards) {
+        dispatch({ type: "SET_CARDS", payload: data.cards });
+      }
+
+      // Set territories if they exist
+      if (data.territories) {
+        // Process territories into the format your state expects
+        Object.entries(data.territories).forEach(([playerId, territories]) => {
+          dispatch({
+            type: "BULK_ADD_TERRITORY",
+            payload: {
+              claims: territories.map((t) => ({ ...t, playerId })),
+            },
+          });
+        });
+      }
+
+      // Set cities if they exist
+      if (data.cities) {
+        data.cities.forEach((city) => {
+          dispatch({
+            type: "ADD_CITY",
+            payload: city,
+          });
+        });
+      }
+    });
+
     socket.on("gameStateUpdate", (data) => {
       console.log("Game state update received:", data);
 
@@ -101,6 +149,10 @@ export default function GameContainer() {
       // Update players if provided
       if (data.players) {
         dispatch({ type: "SET_PLAYERS", payload: data.players });
+      }
+
+      if (data.cards) {
+        dispatch({ type: "SET_CARDS", payload: data.cards });
       }
 
       // If this is the expand phase, ensure cityBuilt is reset
@@ -137,7 +189,6 @@ export default function GameContainer() {
 
       // Update phase in state
       dispatch({ type: "SET_PHASE", payload: newPhase });
-      setTimer(data.phaseDuration);
 
       // Show message if provided
       if (data.message) {
@@ -153,7 +204,7 @@ export default function GameContainer() {
         const userFromStorage = JSON.parse(localStorage.getItem("user"));
         if (userFromStorage) {
           const currentPlayer = players.find(
-            (p) => p.id === userFromStorage._id
+            (p) => p._id === userFromStorage._id
           );
           console.log(
             "Player resources at start of expand phase:",
@@ -186,17 +237,20 @@ export default function GameContainer() {
       }
 
       if (data.phase) dispatch({ type: "SET_PHASE", payload: data.phase });
-      if (data.phaseDuration) setTimer(data.phaseDuration);
 
       // Update cards for the current player
       if (data.cards && userFromStorage) {
+        dispatch({
+          type: "SET_CARDS",
+          payload: data.cards,
+        });
         // Make sure to use the correct property name for cards
         dispatch({
           type: "UPDATE_PLAYER_RESOURCES",
           payload: {
             id: userFromStorage._id,
             production: data.production,
-            cards: data.cards,
+            gold: data.gold || 0,
           },
         });
       }
@@ -205,6 +259,7 @@ export default function GameContainer() {
     socket.on("resourceUpdate", (data) => {
       console.log("Resource update received:", data);
 
+      setProduction(data.production);
       // Force console logging of the received data
       console.table({
         production: data.production,
@@ -232,7 +287,7 @@ export default function GameContainer() {
         // Force logging of the player state after update
         console.log(
           "Current player state after resource update:",
-          players.find((p) => p.id === userFromStorage._id)
+          players.find((p) => p._id === userFromStorage._id)
         );
       } else {
         console.error("No user data in localStorage for resource update");
@@ -345,22 +400,6 @@ export default function GameContainer() {
     };
   }, [queryLobbyId, dispatch]);
 
-  useEffect(() => {
-    let countdownInterval;
-    if (timer && timer > 0) {
-      countdownInterval = setInterval(() => {
-        setTimer((prev) => {
-          if (prev <= 1000) {
-            clearInterval(countdownInterval);
-            return 0;
-          }
-          return prev - 1000;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(countdownInterval);
-  }, [timer]);
-
   const handleCityPlacement = (tileInfo) => {
     console.log("City placed at", tileInfo);
     socket.emit("buildCity", {
@@ -420,14 +459,16 @@ export default function GameContainer() {
         onCancelPlacement={handleCancelPlacement}
         onStructurePlacement={handleStructurePlacement}
       />
+
+      <div className="absolute top-5 right-1/2 z-10">
+        <ResourceBar resourceValue={production} />
+      </div>
       <div className="absolute top-5 left-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
         <h2>Game Room: {queryLobbyId}</h2>
         <h3>
           Player: {user ? user.username + " (" + user._id + ")" : "Guest"}{" "}
         </h3>
-        <h3>
-          Phase: {phase} {timer !== null && `(${Math.floor(timer / 1000)}s)`}
-        </h3>
+        <h3>Phase: {phase}</h3>
         <hr />
         <h3>Players:</h3>
         <ul>

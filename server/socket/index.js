@@ -17,38 +17,62 @@ const cardData = [
     effect: "Increases defense and production of city.",
     cost: { production: 20, gold: 1 },
   },
-  {
-    id: "resource-structure-1",
-    name: "Granary",
-    type: "resource",
-    reusable: true,
-    effect: "Increases production by 5.",
-    cost: { production: 7 },
-  },
+  // {
+  //   id: "resource-structure-1",
+  //   name: "Granary",
+  //   type: "resource",
+  //   reusable: true,
+  //   effect: "Increases production by 5.",
+  //   cost: { production: 7 },
+  // },
   {
     id: "defensive-structure-1",
     name: "Watchtower",
     type: "defensive",
     reusable: true,
-    effect: "Increases defense by 2 in adjacent cities.",
-    cost: { production: 5 },
+    effect: "Shoots arrows up to 4 tiles.",
+    cost: { production: 2 },
+  },
+  {
+    id: "defensive-structure-2",
+    name: "Wall",
+    type: "defensive",
+    reusable: true,
+    effect: "Blocks 1 tile.",
+    cost: { production: 1 },
+  },
+  {
+    id: "defensive-structure-3",
+    name: "Archer",
+    type: "defensive",
+    reusable: true,
+    effect: "Shoots arrows up to 3 tiles.",
+    cost: { production: 1 },
   },
   {
     id: "army-unit-1",
-    name: "Infantry",
+    name: "Militia",
     type: "unit",
     reusable: false,
     effect: "Basic attacking unit.",
-    cost: { production: 4 },
+    cost: { production: 1 },
   },
   {
-    id: "effect-card-1",
-    name: "Blitz",
-    type: "effect",
+    id: "army-unit-2",
+    name: "Light Infantry",
+    type: "unit",
     reusable: false,
-    effect: "Temporarily doubles production.",
-    cost: { production: 8 },
+    effect: "Basic attacking unit.",
+    cost: { production: 2 },
   },
+  // {
+  //   id: "effect-card-1",
+  //   name: "Blitz",
+  //   type: "effect",
+  //   reusable: false,
+  //   effect: "Temporarily doubles production.",
+  //   cost: { production: 8 },
+  // },
 ];
 
 const PHASES = {
@@ -57,24 +81,59 @@ const PHASES = {
   RESOLUTION: "resolution", // Battles, territory connectivity check
 };
 
-// Add territory management to the global state
 function initLobby(lobbyId) {
   return {
     players: [],
     occupiedTiles: new Set(),
     timer: null,
     phase: PHASES.EXPAND,
-    pendingCities: [], // Cities built during the current expansion phase
-    playerTerritories: {}, // Maps player IDs to their territories
-    tileOwnership: {}, // Maps tile coordinates to player IDs
+    pendingCities: [],
+    playerTerritories: {},
+    tileOwnership: {},
     settings: {
-      phaseDuration: 300000, // 5 minutes (adjust as needed)
+      phaseDuration: 300000, // 5 minutes
     },
+    turnStarted: false, // Ensure new turn logic runs only once.
+    phaseTransitionInProgress: false, // NEW: guard for phase transition
   };
 }
 
+// Centralized function to start a new turn.
+function startNewTurn(lobbyId, io) {
+  const lobby = lobbies[lobbyId];
+  if (lobby.turnStarted) {
+    console.log(`Turn for lobby ${lobbyId} already started.`);
+    return;
+  }
+  lobby.turnStarted = true;
+  // Collect resources for each player.
+  collectResources(lobby, io);
+  // Reset pending cities.
+  lobby.pendingCities = [];
+  // Emit phaseChange for expand phase.
+  io.to(`lobby-${lobbyId}`).emit("phaseChange", {
+    phase: PHASES.EXPAND,
+    message: "New turn started! Resources collected.",
+    waiting: false,
+  });
+  console.log(`Resources collected for lobby ${lobbyId} at turn start.`);
+  // Emit game state update including available cards.
+  const groupedCards = {
+    citycards: cardData.filter((card) => card.type === "city"),
+    resourcestructures: cardData.filter((card) => card.type === "resource"),
+    defensivestructures: cardData.filter((card) => card.type === "defensive"),
+    units: cardData.filter((card) => card.type === "unit"),
+    effects: cardData.filter((card) => card.type === "effect"),
+  };
+  io.to(`lobby-${lobbyId}`).emit("gameStateUpdate", {
+    phase: PHASES.EXPAND,
+    players: lobby.players,
+    cards: groupedCards,
+    message: "Game state refreshed for new turn",
+  });
+}
+
 function updatePlayerResources(player, socket) {
-  // Build a complete resource object.
   const resourceUpdate = {
     production: player.production,
     gold: player.gold || 0,
@@ -82,119 +141,144 @@ function updatePlayerResources(player, socket) {
   socket.emit("resourceUpdate", resourceUpdate);
 }
 
-// add check to make sure city is inside player territory, unless it is the first city in which case it can be placed on any non occupied or water or mountain tile
 function validateCityPlacement(lobby, tile) {
   lobby.occupiedTiles = lobby.occupiedTiles || new Set();
-  if (lobby.occupiedTiles.has(JSON.stringify(tile))) {
-    return false;
-  }
-  return true;
+  return !lobby.occupiedTiles.has(JSON.stringify(tile));
+}
+
+function computePlayerProduction(player) {
+  if (!player.cities || player.cities.length === 0) return 0;
+  let total = 0;
+  const cities = player.cities;
+  cities.forEach((city, i) => {
+    let base = i === 0 ? 10 : 1;
+    let bonus = 0;
+    cities.forEach((otherCity, j) => {
+      if (i === j) return;
+      const dx = city.tile.x - otherCity.tile.x;
+      const dy = city.tile.y - otherCity.tile.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance <= 3) {
+        bonus += 0.3;
+      } else if (distance <= 5) {
+        bonus += 0.1;
+      }
+    });
+    total += base + bonus;
+  });
+  return Math.floor(total);
 }
 
 function collectResources(lobby, io) {
   console.log(`Collecting resources for ${lobby.players.length} players`);
-
-  try {
-    lobby.players.forEach((player) => {
-      // Safety check for valid player object
-      if (!player || typeof player !== "object") {
-        console.error("Invalid player object in collectResources:", player);
-        return;
-      }
-
-      // Base production from cities (10 per city)
-      const citiesCount = player.cities ? player.cities.length : 0;
-      const productionFromCities = citiesCount * 10;
-
-      // Track previous and new values for logging
-      const previousProduction = player.production || 0;
-      player.production = (player.production || 0) + productionFromCities;
-
-      console.log(
-        `Player ${player.username}: ${citiesCount} cities, +${productionFromCities} production (${previousProduction} → ${player.production})`
-      );
-
-      // Safety check for valid socketId
-      if (!player.socketId) {
-        console.error("Missing socketId for player:", player.username);
-        return;
-      }
-
-      // Emit updated resources to the specific player
-      try {
-        io.to(player.socketId).emit("resourceUpdate", {
-          production: player.production,
-          gold: player.gold || 0,
-        });
-        console.log(
-          `Resource update emitted to ${player.username} (${player.socketId})`
-        );
-      } catch (emitError) {
-        console.error("Error emitting resource update:", emitError);
-      }
-    });
-  } catch (error) {
-    console.error("Error in collectResources:", error);
-  }
+  lobby.players.forEach((player) => {
+    if (!player || typeof player !== "object") {
+      console.error("Invalid player object in collectResources:", player);
+      return;
+    }
+    const productionFromCities = computePlayerProduction(player);
+    const previousProduction = player.production || 0;
+    player.production = previousProduction + productionFromCities;
+    console.log(
+      `Player ${player.username}: production from cities = ${productionFromCities} (Total: ${previousProduction} -> ${player.production})`
+    );
+    if (player.socketId) {
+      io.to(player.socketId).emit("resourceUpdate", {
+        production: player.production,
+        gold: player.gold || 0,
+      });
+    } else {
+      console.error("Missing socketId for player:", player.username);
+    }
+  });
 }
 
-function createPhaseTimer(lobbyId, io) {
-  const phaseDuration = lobbies[lobbyId].settings.phaseDuration;
-  return setInterval(() => {
-    try {
-      // Transition to next phase
-      const currentPhase = lobbies[lobbyId].phase;
-      console.log(
-        `Phase timer triggered for lobby ${lobbyId}, current phase: ${currentPhase}`
-      );
+// Centralized phase-advancement logic.
+// Uses a flag to ensure only one advance is processed.
+function advancePhase(lobbyId, io) {
+  const lobby = lobbies[lobbyId];
+  if (!lobby) return;
 
-      if (currentPhase === PHASES.EXPAND) {
-        // Transition from EXPAND to CONQUER
-        console.log("Transitioning from EXPAND to CONQUER phase");
-        lobbies[lobbyId].phase = PHASES.CONQUER;
+  // If a phase transition is already in progress, do nothing.
+  if (lobby.phaseTransitionInProgress) {
+    console.log(`Phase transition already in progress in lobby ${lobbyId}`);
+    return;
+  }
+  lobby.phaseTransitionInProgress = true;
 
-        // Start territory expansion at the beginning of CONQUER phase
-        startTerritoryExpansion(lobbyId, io);
-      } else if (currentPhase === PHASES.CONQUER) {
-        // Transition from CONQUER to RESOLUTION
-        console.log("Transitioning from CONQUER to RESOLUTION phase");
-        lobbies[lobbyId].phase = PHASES.RESOLUTION;
-
-        // Handle battle resolution later
-        // processBattles(lobbyId, io);
-      } else if (currentPhase === PHASES.RESOLUTION) {
-        // Transition from RESOLUTION to EXPAND
-        console.log("Transitioning from RESOLUTION to EXPAND phase");
-        lobbies[lobbyId].phase = PHASES.EXPAND;
-
-        // Collect resources at the start of EXPAND phase
-        collectResources(lobbies[lobbyId], io);
-
-        // Reset pending cities for the new expansion phase
-        lobbies[lobbyId].pendingCities = [];
-      }
-
-      // Notify clients of the phase change
+  switch (lobby.phase) {
+    case PHASES.EXPAND:
+      lobby.phase = PHASES.CONQUER;
       io.to(`lobby-${lobbyId}`).emit("phaseChange", {
-        phase: lobbies[lobbyId].phase,
-        phaseDuration,
+        phase: PHASES.CONQUER,
+        message: "Phase moved to conquer. Territory expansion starting...",
+        waiting: false,
       });
-    } catch (error) {
-      console.error("Error in phase timer:", error);
-    }
-  }, phaseDuration);
+      startTerritoryExpansion(lobbyId, io);
+      break;
+    case PHASES.CONQUER:
+      lobby.phase = PHASES.RESOLUTION;
+      io.to(`lobby-${lobbyId}`).emit("phaseChange", {
+        phase: PHASES.RESOLUTION,
+        message: "Phase moved to resolution. Battle simulation starting...",
+        waiting: true,
+        waitDuration: 5000,
+      });
+      // Delay for battle resolution.
+      setTimeout(() => {
+        lobby.phase = PHASES.EXPAND;
+        lobby.turnStarted = false;
+        lobby.players.forEach((player) => {
+          player.currentPhase = PHASES.EXPAND;
+        });
+        startNewTurn(lobbyId, io);
+        io.to(`lobby-${lobbyId}`).emit("phaseChange", {
+          phase: PHASES.EXPAND,
+          message:
+            "New turn started! Expansion phase - collect resources and build.",
+          waiting: false,
+        });
+        lobby.pendingCities = [];
+        lobby.players = lobby.players.map((player) => ({
+          ...player,
+          ready: false,
+        }));
+        io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
+          players: lobby.players,
+          message: "New turn started. Ready status reset.",
+        });
+      }, 5000);
+      break;
+    case PHASES.RESOLUTION:
+      // This branch is handled in the CONQUER delay.
+      break;
+    default:
+      break;
+  }
+
+  // Reset all players' ready status for non-waiting phases.
+  if (lobby.phase !== PHASES.RESOLUTION) {
+    lobby.players = lobby.players.map((player) => ({
+      ...player,
+      ready: false,
+    }));
+    io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
+      players: lobby.players,
+      message: `Phase advanced to ${lobby.phase}.`,
+    });
+  }
+
+  // Phase transition finished.
+  lobby.phaseTransitionInProgress = false;
 }
 
 function startTerritoryExpansion(lobbyId, io) {
   console.log(`Starting territory expansion for lobby ${lobbyId}`);
   const lobby = lobbies[lobbyId];
-
   if (!lobby) {
     console.error(`No lobby found with ID ${lobbyId}`);
     return;
   }
-
-  // Get map data from lobby
   const mapData = lobby.mapData;
   if (!mapData) {
     console.error("No map data available for territory expansion");
@@ -203,121 +287,79 @@ function startTerritoryExpansion(lobbyId, io) {
     });
     return;
   }
-
-  // Initialize territory structures if needed
   lobby.playerTerritories = lobby.playerTerritories || {};
   lobby.tileOwnership = lobby.tileOwnership || {};
-
-  // Check if we have pending cities for expansion
   if (!lobby.pendingCities || lobby.pendingCities.length === 0) {
     console.log("No pending cities for territory expansion");
-
-    // Even if there are no new cities, we should still notify clients
     io.to(`lobby-${lobbyId}`).emit("territoryExpansionComplete", {
       message: "No new territories to expand",
     });
     return;
   }
-
   console.log(
     `Found ${lobby.pendingCities.length} pending cities for expansion`
   );
-
-  // Create expansion queue with all potential territory tiles
   const expansionQueue = [];
-
-  // Add all potential tiles from all pending cities to the expansion queue
   lobby.pendingCities.forEach((city) => {
     const { x, y, playerId, radius } = city;
     console.log(
       `Adding territory for city at (${x},${y}) for player ${playerId}`
     );
-
-    // Add all tiles within radius to expansion queue
     for (let dx = -radius; dx <= radius; dx++) {
       for (let dy = -radius; dy <= radius; dy++) {
         const tileX = x + dx;
         const tileY = y + dy;
-
-        // Skip if outside map boundaries
         if (
           tileX < 0 ||
           tileY < 0 ||
           tileX >= mapData[0]?.length ||
           tileY >= mapData.length
-        ) {
+        )
           continue;
-        }
-
-        // Check tile type - only claim valid terrain (not water or mountains)
         const tileType = mapData[tileY][tileX]?.type;
-        if (tileType === "water" || tileType === "mountain") {
-          continue;
-        }
-
-        // Calculate distance for circular territory
+        if (tileType === "water" || tileType === "mountain") continue;
         const distance = Math.sqrt(dx * dx + dy * dy);
-
         if (distance <= radius) {
           expansionQueue.push({
             x: tileX,
             y: tileY,
             playerId,
-            distance, // Store exact distance for ring-based expansion
-            distanceRing: Math.ceil(distance), // Round up to nearest integer for ring grouping
-            cityX: x, // Store origin city for reference
+            distance,
+            distanceRing: Math.ceil(distance),
+            cityX: x,
             cityY: y,
           });
         }
       }
     }
   });
-
   console.log(
     `Created expansion queue with ${expansionQueue.length} potential tiles`
   );
-
-  // Sort by distance ring (closest to city first)
   expansionQueue.sort((a, b) => a.distanceRing - b.distanceRing);
-
-  // Group tiles by distance ring
   const ringGroups = {};
   expansionQueue.forEach((tile) => {
     const ring = tile.distanceRing;
-    if (!ringGroups[ring]) {
-      ringGroups[ring] = [];
-    }
+    if (!ringGroups[ring]) ringGroups[ring] = [];
     ringGroups[ring].push(tile);
   });
-
-  // Shuffle tiles within each ring for randomness
   Object.keys(ringGroups).forEach((ring) => {
     shuffleArray(ringGroups[ring]);
   });
-
-  // Flatten back to a queue, but now organized by rings
   lobby.expansionQueue = [];
-
-  // Add rings in order from inner to outer
   const rings = Object.keys(ringGroups).sort(
     (a, b) => parseInt(a) - parseInt(b)
   );
   rings.forEach((ring) => {
     lobby.expansionQueue.push(...ringGroups[ring]);
   });
-
   console.log(
     `Organized expansion queue into ${rings.length} concentric rings`
   );
-
-  // Track which ring we're currently processing
   lobby.currentExpansionRing = parseInt(rings[0]);
-
-  // Start processing the territory expansion
   processTerritoryExpansion(lobbyId, io);
 }
 
-// Ensure the processTerritoryExpansion function is working correctly
 function processTerritoryExpansion(lobbyId, io) {
   const lobby = lobbies[lobbyId];
   if (!lobby) {
@@ -326,35 +368,23 @@ function processTerritoryExpansion(lobbyId, io) {
     );
     return;
   }
-
   if (!lobby.expansionQueue || lobby.expansionQueue.length === 0) {
     console.log("Territory expansion complete, no more tiles to process");
-    // Expansion complete
     io.to(`lobby-${lobbyId}`).emit("territoryExpansionComplete", {
       message: "Territory expansion complete",
     });
     return;
   }
-
-  // Get the current ring we're processing
   const currentRing = lobby.expansionQueue[0].distanceRing;
-
-  // Check if we've moved to a new ring
   if (currentRing > lobby.currentExpansionRing) {
     lobby.currentExpansionRing = currentRing;
     console.log(`Moving to expansion ring ${currentRing}`);
-
-    // Add a slight delay between rings for visual effect
     setTimeout(() => processTerritoryExpansion(lobbyId, io), 200);
     return;
   }
-
-  // Process tiles from the current ring
-  const batchSize = 5; // Adjust for desired expansion speed
+  const batchSize = 5;
   const claims = [];
   let processedCount = 0;
-
-  // Process up to batchSize tiles, but only from the current ring
   while (
     processedCount < batchSize &&
     lobby.expansionQueue.length > 0 &&
@@ -362,27 +392,19 @@ function processTerritoryExpansion(lobbyId, io) {
   ) {
     const claim = lobby.expansionQueue.shift();
     const { x, y, playerId } = claim;
-
-    // Try to claim the territory
     const claimed = addToPlayerTerritory(lobby, playerId, x, y);
-
     if (claimed) {
       claims.push({ x, y, playerId });
     }
-
     processedCount++;
   }
-
-  // Get counts of remaining tiles in current ring and total
   const remainingInRing = lobby.expansionQueue.filter(
     (t) => t.distanceRing === currentRing
   ).length;
   const totalRemaining = lobby.expansionQueue.length;
-
-  // Send batch update to clients if there are claims
   if (claims.length > 0) {
     console.log(
-      `Sending batch of ${claims.length} territory updates to clients (Ring ${currentRing}, ${remainingInRing} left in ring, ${totalRemaining} total)`
+      `Sending batch of ${claims.length} territory updates to clients (Ring ${currentRing}, ${remainingInRing} left, ${totalRemaining} total)`
     );
     io.to(`lobby-${lobbyId}`).emit("territoryUpdate", {
       claims,
@@ -391,63 +413,39 @@ function processTerritoryExpansion(lobbyId, io) {
       remainingClaims: totalRemaining,
     });
   }
-
-  // Continue processing if there are more claims, with a slight delay
   if (totalRemaining > 0) {
     setTimeout(() => processTerritoryExpansion(lobbyId, io), 100);
   } else {
     console.log("No more territory to process, expansion complete");
-    // Expansion complete
     io.to(`lobby-${lobbyId}`).emit("territoryExpansionComplete", {
       message: "Territory expansion complete",
     });
-
-    // Clear pending cities since expansion is complete
     lobby.pendingCities = [];
   }
 }
 
-// Helper function to add territory to a player
 function addToPlayerTerritory(lobby, playerId, x, y) {
-  // Initialize territories structures if needed
   lobby.playerTerritories = lobby.playerTerritories || {};
   lobby.tileOwnership = lobby.tileOwnership || {};
-
-  // Get map data to check terrain
   const mapData = lobby.mapData;
   if (mapData) {
-    // Skip if outside map boundaries
-    if (x < 0 || y < 0 || x >= mapData[0]?.length || y >= mapData.length) {
+    if (x < 0 || y < 0 || x >= mapData[0]?.length || y >= mapData.length)
       return false;
-    }
-
-    // Check tile type - do not claim water or mountains
     const tileType = mapData[y][x]?.type;
-    if (tileType === "water" || tileType === "mountain") {
-      return false;
-    }
+    if (tileType === "water" || tileType === "mountain") return false;
   }
-
-  // Create player territory array if it doesn't exist
   if (!lobby.playerTerritories[playerId]) {
     lobby.playerTerritories[playerId] = [];
   }
-
   const tileKey = `${x},${y}`;
-
-  // Check if this tile is already owned
   if (
     lobby.tileOwnership[tileKey] &&
     lobby.tileOwnership[tileKey] !== playerId
   ) {
-    // Tile is already owned by another player - don't change ownership
     return false;
   }
-
-  // Claim the tile
   lobby.tileOwnership[tileKey] = playerId;
   lobby.playerTerritories[playerId].push({ x, y });
-
   return true;
 }
 
@@ -465,25 +463,13 @@ module.exports = function (io) {
     socket.on("joinLobby", (data) => {
       const { lobbyId, username, _id } = data;
       socket.join(`lobby-${lobbyId}`);
-
       if (!lobbies[lobbyId]) {
-        lobbies[lobbyId] = {
-          players: [],
-          occupiedTiles: new Set(),
-          timer: null,
-          phase: "expand",
-          settings: {
-            phaseDuration: 300000, // 5 minutes (adjust as needed)
-          },
-        };
+        lobbies[lobbyId] = initLobby(lobbyId);
       }
-
       if (lobbies[lobbyId].players.some((p) => p._id === _id)) {
         console.log("Player already in lobby:", username);
         return;
       }
-
-      // Create grouped card types for the player to start with
       const playerCards = {
         citycards: cardData.filter((card) => card.type === "city"),
         resourcestructures: cardData.filter((card) => card.type === "resource"),
@@ -493,7 +479,6 @@ module.exports = function (io) {
         units: cardData.filter((card) => card.type === "unit"),
         effects: cardData.filter((card) => card.type === "effect"),
       };
-
       lobbies[lobbyId].players.push({
         socketId: socket.id,
         username,
@@ -502,10 +487,8 @@ module.exports = function (io) {
         production: 10,
         gold: 0,
         cities: [],
-        // Store cards in the player object with the correct grouped structure
         cards: playerCards,
       });
-
       io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
         players: lobbies[lobbyId].players,
         message: `${username} joined the lobby.`,
@@ -518,11 +501,8 @@ module.exports = function (io) {
       if (!lobbies[lobbyId]) {
         lobbies[lobbyId] = initLobby(lobbyId);
       }
-
-      // Store map data in the lobby for territory expansion
       lobbies[lobbyId].mapData = mapData;
-      lobbies[lobbyId].phase = "expand";
-
+      lobbies[lobbyId].phase = PHASES.EXPAND;
       const groupedCards = {
         citycards: cardData.filter((card) => card.type === "city"),
         resourcestructures: cardData.filter((card) => card.type === "resource"),
@@ -532,20 +512,69 @@ module.exports = function (io) {
         units: cardData.filter((card) => card.type === "unit"),
         effects: cardData.filter((card) => card.type === "effect"),
       };
-
       io.to(`lobby-${lobbyId}`).emit("gameStarted", {
         mapData,
         players: lobbies[lobbyId].players,
         phase: lobbies[lobbyId].phase,
-        phaseDuration: lobbies[lobbyId].settings.phaseDuration,
         cards: groupedCards,
-        production: lobbies[lobbyId].players[0].production, // example
+        production: lobbies[lobbyId].players[0].production,
+      });
+    });
+
+    socket.on("requestFullState", (data) => {
+      const { lobbyId, _id } = data;
+      console.log(`Player ${_id} requested full state for lobby ${lobbyId}`);
+
+      const lobby = lobbies[lobbyId];
+      if (!lobby) {
+        console.error(`Lobby ${lobbyId} not found for full state request`);
+        return;
+      }
+
+      const player = lobby.players.find((p) => p._id === _id);
+      if (!player) {
+        console.error(`Player ${_id} not found in lobby ${lobbyId}`);
+        return;
+      }
+
+      // Prepare the complete game state
+      const fullState = {
+        mapData: lobby.mapData,
+        players: lobby.players,
+        phase: lobby.phase,
+        cards: player.cards || {
+          citycards: cardData.filter((card) => card.type === "city"),
+          resourcestructures: cardData.filter(
+            (card) => card.type === "resource"
+          ),
+          defensivestructures: cardData.filter(
+            (card) => card.type === "defensive"
+          ),
+          units: cardData.filter((card) => card.type === "unit"),
+          effects: cardData.filter((card) => card.type === "effect"),
+        },
+        territories: lobby.playerTerritories || {},
+        cities: [],
+        production: player.production,
+        gold: player.gold || 0,
+      };
+
+      // Collect all cities
+      lobby.players.forEach((p) => {
+        if (p.cities && Array.isArray(p.cities)) {
+          p.cities.forEach((city) => {
+            fullState.cities.push({
+              x: city.tile.x,
+              y: city.tile.y,
+              type: "city",
+              level: city.level || 1,
+              playerId: p._id,
+            });
+          });
+        }
       });
 
-      if (lobbies[lobbyId].timer) {
-        clearInterval(lobbies[lobbyId].timer);
-      }
-      lobbies[lobbyId].timer = createPhaseTimer(lobbyId, io);
+      socket.emit("fullStateUpdate", fullState);
     });
 
     socket.on("playerReady", (data) => {
@@ -554,7 +583,6 @@ module.exports = function (io) {
 
       console.log(`Player ${username} (${_id}) is ready in lobby ${lobbyId}`);
 
-      // Mark this player as ready
       lobbies[lobbyId].players = lobbies[lobbyId].players.map((player) => {
         if (player._id === _id) {
           return { ...player, ready: true };
@@ -562,13 +590,11 @@ module.exports = function (io) {
         return player;
       });
 
-      // Notify all players about the ready status
       io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
         players: lobbies[lobbyId].players,
         message: `${username} is ready.`,
       });
 
-      // Check if all players are ready
       const allReady =
         lobbies[lobbyId].players.length > 0 &&
         lobbies[lobbyId].players.every((player) => player.ready);
@@ -578,176 +604,23 @@ module.exports = function (io) {
           `All players in lobby ${lobbyId} are ready. Advancing phase.`
         );
 
-        // Stop any existing timer
-        if (lobbies[lobbyId].timer) {
-          clearInterval(lobbies[lobbyId].timer);
+        // Immediately set phaseTransitionInProgress to false if it's stuck
+        setTimeout(() => {
+          if (lobbies[lobbyId] && lobbies[lobbyId].phaseTransitionInProgress) {
+            console.log(`Forcing phase transition reset for lobby ${lobbyId}`);
+            lobbies[lobbyId].phaseTransitionInProgress = false;
+          }
+
+          // Check the conditions again and advance if needed
+          if (!lobbies[lobbyId].phaseTransitionInProgress) {
+            advancePhase(lobbyId, io);
+          }
+        }, 500);
+
+        // Try to advance immediately
+        if (!lobbies[lobbyId].phaseTransitionInProgress) {
+          advancePhase(lobbyId, io);
         }
-
-        // Get the current phase and determine the next phase
-        const currentPhase = lobbies[lobbyId].phase;
-        let nextPhase;
-
-        if (currentPhase === "expand") {
-          nextPhase = "conquer";
-
-          // When moving to conquer phase, start territory expansion immediately
-          lobbies[lobbyId].phase = nextPhase;
-          io.to(`lobby-${lobbyId}`).emit("phaseChange", {
-            phase: nextPhase,
-            phaseDuration: lobbies[lobbyId].settings.phaseDuration,
-            message: "Phase moved to conquer. Territory expansion starting...",
-          });
-
-          // Explicitly start territory expansion here
-          startTerritoryExpansion(lobbyId, io);
-        } else if (currentPhase === "conquer") {
-          nextPhase = "resolution";
-          lobbies[lobbyId].phase = nextPhase;
-          io.to(`lobby-${lobbyId}`).emit("phaseChange", {
-            phase: nextPhase,
-            phaseDuration: lobbies[lobbyId].settings.phaseDuration,
-            message: "Phase moved to resolution. Battle simulation starting...",
-          });
-
-          // For now, just move to the next phase automatically after a short delay
-          // This simulates battle resolution
-          setTimeout(() => {
-            console.log(
-              "Resolution phase complete, transitioning to expand phase"
-            );
-
-            // Move to expand phase after resolution
-            lobbies[lobbyId].phase = "expand";
-
-            // IMPORTANT: Force store the new phase in each player object to ensure sync
-            lobbies[lobbyId].players.forEach((player) => {
-              player.currentPhase = "expand";
-            });
-
-            // Make sure we have valid player references before collecting resources
-            if (
-              lobbies[lobbyId].players &&
-              lobbies[lobbyId].players.length > 0
-            ) {
-              console.log(
-                `About to collect resources for ${lobbies[lobbyId].players.length} players`
-              );
-              // Add extra debugging in collectResources function to track issues
-              collectResources(lobbies[lobbyId], io);
-
-              // Send direct resource update to each player for redundancy
-              lobbies[lobbyId].players.forEach((player) => {
-                console.log(
-                  `Sending explicit resource update to ${player.username} with ${player.production} production`
-                );
-                io.to(player.socketId).emit("resourceUpdate", {
-                  production: player.production,
-                  gold: player.gold || 0,
-                });
-
-                // Reset cityBuilt flags
-                console.log(`Sending resetCityBuilt to ${player.username}`);
-                io.to(player.socketId).emit("resetCityBuilt", {
-                  message:
-                    "New expansion phase started. You can build a new city.",
-                });
-              });
-            } else {
-              console.error(
-                "No players found in lobby when trying to collect resources"
-              );
-            }
-
-            // Reset pending cities for the new expansion phase
-            lobbies[lobbyId].pendingCities = [];
-
-            // Notify about phase change
-            io.to(`lobby-${lobbyId}`).emit("phaseChange", {
-              phase: "expand",
-              phaseDuration: lobbies[lobbyId].settings.phaseDuration,
-              message:
-                "New turn started! Expansion phase - collect resources and build.",
-            });
-
-            // Send an additional game state update to ensure all clients are in sync
-            const groupedCards = {
-              citycards: cardData.filter((card) => card.type === "city"),
-              resourcestructures: cardData.filter(
-                (card) => card.type === "resource"
-              ),
-              defensivestructures: cardData.filter(
-                (card) => card.type === "defensive"
-              ),
-              units: cardData.filter((card) => card.type === "unit"),
-              effects: cardData.filter((card) => card.type === "effect"),
-            };
-
-            io.to(`lobby-${lobbyId}`).emit("gameStateUpdate", {
-              phase: "expand",
-              players: lobbies[lobbyId].players,
-              message: "Game state refreshed for new turn",
-            });
-
-            // Reset player ready status
-            lobbies[lobbyId].players = lobbies[lobbyId].players.map(
-              (player) => ({
-                ...player,
-                ready: false,
-              })
-            );
-
-            // Notify all clients about the updated player ready status
-            io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
-              players: lobbies[lobbyId].players,
-              message: "New turn started. Ready status reset.",
-            });
-
-            // Restart the timer for the new phase
-            lobbies[lobbyId].timer = createPhaseTimer(lobbyId, io);
-          }, 5000); // 5 second delay to simulate battle resolution
-
-          // Don't set up a new timer yet, wait for the resolution to complete
-          return;
-        } else if (currentPhase === "resolution") {
-          nextPhase = "expand";
-          lobbies[lobbyId].phase = nextPhase;
-
-          // Collect resources at the start of expand phase
-          collectResources(lobbies[lobbyId], io);
-
-          // Reset cityBuilt flags for all players
-          lobbies[lobbyId].players.forEach((player) => {
-            // Send a cityBuilt reset event to the player
-            io.to(player.socketId).emit("resetCityBuilt", {
-              message: "New expansion phase started. You can build a new city.",
-            });
-          });
-
-          // Reset pending cities for the new expansion phase
-          lobbies[lobbyId].pendingCities = [];
-
-          io.to(`lobby-${lobbyId}`).emit("phaseChange", {
-            phase: nextPhase,
-            phaseDuration: lobbies[lobbyId].settings.phaseDuration,
-            message:
-              "New turn started! Expansion phase - collect resources and build.",
-          });
-        }
-
-        // Reset all players' ready status
-        lobbies[lobbyId].players = lobbies[lobbyId].players.map((player) => ({
-          ...player,
-          ready: false,
-        }));
-
-        // Notify all clients about the updated player ready status
-        io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
-          players: lobbies[lobbyId].players,
-          message: `All players were ready. Phase moved to ${nextPhase}.`,
-        });
-
-        // Restart the timer for the new phase
-        lobbies[lobbyId].timer = createPhaseTimer(lobbyId, io);
       }
     });
 
@@ -758,14 +631,10 @@ module.exports = function (io) {
       if (!lobby) return;
       const player = lobby.players.find((p) => p._id === _id);
       if (!player) return;
-
-      // Validate city placement
       if (!validateCityPlacement(lobby, tile)) {
         socket.emit("buildCityError", { message: "Invalid or occupied tile." });
         return;
       }
-
-      // Check if player has enough resources
       const cityCost = 10;
       if (player.production < cityCost) {
         socket.emit("buildCityError", {
@@ -773,30 +642,22 @@ module.exports = function (io) {
         });
         return;
       }
-
-      // Deduct cost and build city
       player.production -= cityCost;
       const newCity = {
         tile,
         level: 1,
-        radius: 6, // Standard radius, could be modified for special cities
+        radius: 6,
       };
       player.cities.push(newCity);
-
-      // Mark the specific city tile as occupied
       lobby.occupiedTiles = lobby.occupiedTiles || new Set();
       lobby.occupiedTiles.add(JSON.stringify(tile));
-
-      // Add to pending cities for next territory expansion
       lobby.pendingCities = lobby.pendingCities || [];
       lobby.pendingCities.push({
         x: tile.x,
         y: tile.y,
         playerId: _id,
-        radius: 6, // Standard radius, could be modified for special cities
+        radius: 6,
       });
-
-      // Notify all clients about the new city
       io.to(`lobby-${lobbyId}`).emit("buildCitySuccess", {
         username: player.username,
         type: "city",
@@ -826,8 +687,6 @@ module.exports = function (io) {
         return;
       }
       player.production -= cost;
-
-      // Initialize cards object if it doesn't exist
       if (!player.cards) {
         player.cards = {
           citycards: [],
@@ -837,8 +696,6 @@ module.exports = function (io) {
           effects: [],
         };
       }
-
-      // Add the card to the appropriate category
       const category =
         cardDef.type === "city"
           ? "citycards"
@@ -849,14 +706,10 @@ module.exports = function (io) {
           : cardDef.type === "unit"
           ? "units"
           : "effects";
-
-      // Make sure the category exists as an array
       if (!player.cards[category]) {
         player.cards[category] = [];
       }
-
       player.cards[category].push(cardDef);
-
       socket.emit("cardPurchaseSuccess", {
         card: cardDef,
         message: `${cardDef.name} purchased successfully.`,

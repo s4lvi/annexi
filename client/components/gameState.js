@@ -20,6 +20,7 @@ const initialState = {
   territories: {}, // territories by player ID: { playerId: [{x, y}] }
   structures: [], // defensive structures on the map
   armies: [], // armies queued for attack
+  availableCards: {}, // cards available for purchase
   targetCity: null, // selected enemy city target
 };
 
@@ -68,6 +69,13 @@ function gameReducer(state, action) {
     case "SET_PLAYERS":
       return { ...state, players: action.payload };
 
+    case "SET_CARDS":
+      console.log("Setting available cards:", action.payload);
+      return {
+        ...state,
+        availableCards: action.payload,
+      };
+
     case "SET_CURRENT_PLAYER":
       return { ...state, currentPlayerId: action.payload };
 
@@ -75,7 +83,7 @@ function gameReducer(state, action) {
       return {
         ...state,
         players: state.players.map((player) =>
-          player.id === action.payload.id
+          player._id === action.payload._id
             ? { ...player, ...action.payload }
             : player
         ),
@@ -85,7 +93,7 @@ function gameReducer(state, action) {
       return {
         ...state,
         players: state.players.map((player) =>
-          player.id === action.payload.id
+          player._id === action.payload._id
             ? {
                 ...player,
                 production:

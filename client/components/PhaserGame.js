@@ -12,6 +12,58 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
   const renderedTerritoriesRef = useRef({});
   const { state } = useGameState();
 
+  function renderAdjacencyLines(scene) {
+    const hexRadius = scene.registry.get("hexRadius");
+    const offsetX = scene.registry.get("offsetX");
+    const offsetY = scene.registry.get("offsetY");
+    const hexWidth = scene.registry.get("hexWidth");
+    const hexHeight = scene.registry.get("hexHeight");
+
+    // Clear previous lines.
+    scene.adjacencyGraphics.clear();
+
+    // Assume you have a state.cities array available with each city { x, y, playerId }.
+    const cities = state.cities;
+    for (let i = 0; i < cities.length; i++) {
+      for (let j = i + 1; j < cities.length; j++) {
+        // Only draw lines between cities of the same player.
+        if (cities[i].playerId !== cities[j].playerId) continue;
+        const dx = cities[i].x - cities[j].x;
+        const dy = cities[i].y - cities[j].y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // Compute centers based on your hex geometry.
+        const centerX1 = cities[i].x * (hexWidth * 0.75) + hexRadius + offsetX;
+        const centerY1 =
+          cities[i].y * hexHeight +
+          (cities[i].x % 2 ? hexHeight / 2 : 0) +
+          hexHeight / 2 +
+          offsetY;
+        const centerX2 = cities[j].x * (hexWidth * 0.75) + hexRadius + offsetX;
+        const centerY2 =
+          cities[j].y * hexHeight +
+          (cities[j].x % 2 ? hexHeight / 2 : 0) +
+          hexHeight / 2 +
+          offsetY;
+
+        // Choose color based on distance thresholds.
+        if (distance <= 3) {
+          // Strong bonus: yellow line.
+          scene.adjacencyGraphics.lineStyle(2, 0xffff00, 1);
+        } else if (distance <= 5) {
+          // Weaker bonus: green line.
+          scene.adjacencyGraphics.lineStyle(2, 0x00ff00, 1);
+        } else {
+          continue;
+        }
+        scene.adjacencyGraphics.beginPath();
+        scene.adjacencyGraphics.moveTo(centerX1, centerY1);
+        scene.adjacencyGraphics.lineTo(centerX2, centerY2);
+        scene.adjacencyGraphics.strokePath();
+      }
+    }
+  }
+
   // Initial game setup - only run once
   useEffect(() => {
     // CRITICAL FIX: If we've already initialized, don't recreate the game
@@ -58,7 +110,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
 
           // Create a new graphics object for the base map
           this.mapGraphics = this.add.graphics();
-
+          this.adjacencyGraphics = this.add.graphics();
           // Create separate graphics layers for territories and cities
           this.territoryGraphics = this.add.graphics();
           this.cityGraphics = this.add.graphics();
@@ -135,6 +187,8 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
               this.mapGraphics.fillPath();
             }
           }
+
+          renderAdjacencyLines(this);
 
           // Instantiate and register ControlsManager.
           const controlsManager = new ControlsManager(this, onMapClick);

@@ -1,19 +1,29 @@
-// components/PhaserGame.js
 "use client";
 import { useEffect, useRef } from "react";
 import * as Phaser from "phaser";
 import ControlsManager from "./ControlsManager";
-import gameState from "./gameState";
+import { useGameState } from "./gameState";
 import HexTileHighlighter from "./HexTileHighlighter";
 
 export default function PhaserGame({ mapData, matchId, onMapClick }) {
   const gameRef = useRef(null);
+  const hasInitialized = useRef(false);
+  const renderedCitiesRef = useRef({});
+  const renderedTerritoriesRef = useRef({});
+  const { state } = useGameState();
+
+  // Initial game setup - only run once
   useEffect(() => {
-    if (!mapData) return;
-    if (gameRef.current) {
-      gameRef.current.destroy(true);
-      gameRef.current = null;
+    // CRITICAL FIX: If we've already initialized, don't recreate the game
+    if (hasInitialized.current) {
+      return;
     }
+
+    if (!mapData) return;
+
+    hasInitialized.current = true;
+    console.log("Initializing Phaser game ONCE");
+
     const hexRadius = 20;
     const hexWidth = 2 * hexRadius;
     const hexHeight = Math.sqrt(3) * hexRadius;
@@ -24,7 +34,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
     // Center the map in the full-window canvas.
     const offsetX = (window.innerWidth - totalWidth) / 2;
     const offsetY = (window.innerHeight - totalHeight) / 2;
-    // Store offsets in registry for ControlsManager
+
     const config = {
       type: Phaser.AUTO,
       width: window.innerWidth,
@@ -38,15 +48,41 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
           this.registry.set("mapCols", mapData[0]?.length || 0);
           this.registry.set("mapRows", mapData.length);
           this.registry.set("mapData", mapData);
+          this.registry.set("hexRadius", hexRadius);
+          this.registry.set("hexWidth", hexWidth);
+          this.registry.set("hexHeight", hexHeight);
+
+          // Set initial phase and placingCity from global state.
+          this.registry.set("phase", state.phase);
+          this.registry.set("placingCity", state.placingCity);
+
+          // Create a new graphics object for the base map
+          this.mapGraphics = this.add.graphics();
+
+          // Create separate graphics layers for territories and cities
+          this.territoryGraphics = this.add.graphics();
+          this.cityGraphics = this.add.graphics();
 
           this.cameras.main.setZoom(1);
-          const graphics = this.add.graphics();
+
           const colors = {
             grass: 0x55aa55,
             mountain: 0x888888,
             water: 0x3366cc,
           };
-          const hexRadius = 20;
+
+          // Player colors for territories (avoid bright green)
+          this.playerColors = [
+            0xed6a5a, // red
+            0x5ca4a9, // teal
+            0xe6af2e, // yellow
+            0x9370db, // purple
+            0x3d405b, // navy
+            0x81b29a, // sage
+            0xf4845f, // orange
+            0x706677, // slate
+          ];
+
           const hexagonPoints = [
             { x: -hexRadius, y: 0 },
             { x: -hexRadius / 2, y: (-hexRadius * Math.sqrt(3)) / 2 },
@@ -55,6 +91,9 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
             { x: hexRadius / 2, y: (hexRadius * Math.sqrt(3)) / 2 },
             { x: -hexRadius / 2, y: (hexRadius * Math.sqrt(3)) / 2 },
           ];
+
+          // Store hex points for reuse
+          this.registry.set("hexagonPoints", hexagonPoints);
 
           // Instantiate the highlighter.
           const highlighter = new HexTileHighlighter(
@@ -65,6 +104,8 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
             offsetY
           );
           this.highlighter = highlighter;
+
+          // Render each tile.
           for (let row = 0; row < mapData.length; row++) {
             for (let col = 0; col < mapData[row].length; col++) {
               const tile = mapData[row][col];
@@ -74,39 +115,30 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
                 (col % 2 ? hexHeight / 2 : 0) +
                 hexHeight / 2 +
                 offsetY;
+
+              // Store center points in the tile for future reference
+              tile.centerX = centerX;
+              tile.centerY = centerY;
+
               const points = hexagonPoints.map((p) => ({
                 x: p.x + centerX,
                 y: p.y + centerY,
               }));
-              graphics.fillStyle(colors[tile.type] || colors.grass, 1);
-              graphics.beginPath();
-              graphics.moveTo(points[0].x, points[0].y);
+
+              this.mapGraphics.fillStyle(colors[tile.type] || colors.grass, 1);
+              this.mapGraphics.beginPath();
+              this.mapGraphics.moveTo(points[0].x, points[0].y);
               for (let i = 1; i < points.length; i++) {
-                graphics.lineTo(points[i].x, points[i].y);
+                this.mapGraphics.lineTo(points[i].x, points[i].y);
               }
-              graphics.closePath();
-              graphics.fillPath();
-              if (tile.city) {
-                graphics.fillStyle(0xffff00, 1); // Yellow for cities
-                graphics.beginPath();
-                graphics.moveTo(points[0].x, points[0].y);
-                for (let i = 1; i < points.length; i++) {
-                  graphics.lineTo(points[i].x, points[i].y);
-                }
-                graphics.closePath();
-                graphics.fillPath();
-              }
+              this.mapGraphics.closePath();
+              this.mapGraphics.fillPath();
             }
           }
+
           // Instantiate and register ControlsManager.
           const controlsManager = new ControlsManager(this, onMapClick);
           controlsManager.register();
-
-          // Optionally subscribe to gameState updates
-          gameState.subscribe(({ phase, placingCity }) => {
-            this.registry.set("phase", phase);
-            this.registry.set("placingCity", placingCity);
-          });
 
           // Use pointermove to update highlight.
           this.input.on("pointermove", (pointer) => {
@@ -116,7 +148,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
               this.registry.get("phase") === "expand" &&
               this.registry.get("placingCity")
             ) {
-              const isValid = tile.type === "grass"; // or your validateCityPlacement(tile)
+              const isValid = tile.type === "grass"; // or use your validation
               highlighter.updateHighlight(tile, isValid);
             } else {
               highlighter.hideHighlight();
@@ -127,7 +159,6 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
     };
 
     const game = new Phaser.Game(config);
-
     gameRef.current = game;
     const handleResize = () => {
       game.scale.resize(window.innerWidth, window.innerHeight);
@@ -136,12 +167,165 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
 
     return () => {
       window.removeEventListener("resize", handleResize);
-      if (gameRef.current) {
-        gameRef.current.destroy(true);
-        gameRef.current = null;
-      }
+      // Don't destroy the game on component unmount
     };
-  }, [mapData, matchId, onMapClick]);
+  }, [mapData, matchId, onMapClick, state.phase, state.placingCity]);
+
+  // Update Phaser scene registry and render cities and territories
+  useEffect(() => {
+    if (
+      gameRef.current &&
+      gameRef.current.scene &&
+      gameRef.current.scene.scenes.length > 0
+    ) {
+      const scene = gameRef.current.scene.scenes[0];
+      scene.registry.set("phase", state.phase);
+      scene.registry.set("placingCity", state.placingCity);
+
+      // Render cities and territories
+      if (scene.cityGraphics && scene.territoryGraphics) {
+        // Clear previous renders
+        scene.cityGraphics.clear();
+        scene.territoryGraphics.clear();
+
+        // Get hex dimensions
+        const hexRadius = scene.registry.get("hexRadius");
+        const hexWidth = scene.registry.get("hexWidth");
+        const hexHeight = scene.registry.get("hexHeight");
+        const hexagonPoints = scene.registry.get("hexagonPoints");
+        const offsetX = scene.registry.get("offsetX");
+        const offsetY = scene.registry.get("offsetY");
+
+        // Render territories first (underneath cities)
+        const territories = state.territories;
+        Object.keys(territories).forEach((playerId, playerIndex) => {
+          const color =
+            scene.playerColors[playerIndex % scene.playerColors.length];
+          const alpha = 0.4; // Semi-transparent
+
+          territories[playerId].forEach((territory) => {
+            if (
+              mapData &&
+              mapData[territory.y] &&
+              mapData[territory.y][territory.x]
+            ) {
+              const tile = mapData[territory.y][territory.x];
+
+              // Calculate hex center coordinates
+              const centerX =
+                territory.x * (hexWidth * 0.75) + hexRadius + offsetX;
+              const centerY =
+                territory.y * hexHeight +
+                (territory.x % 2 ? hexHeight / 2 : 0) +
+                hexHeight / 2 +
+                offsetY;
+
+              // Draw territory hex
+              const points = hexagonPoints.map((p) => ({
+                x: p.x + centerX,
+                y: p.y + centerY,
+              }));
+
+              scene.territoryGraphics.fillStyle(color, alpha);
+              scene.territoryGraphics.beginPath();
+              scene.territoryGraphics.moveTo(points[0].x, points[0].y);
+              for (let i = 1; i < points.length; i++) {
+                scene.territoryGraphics.lineTo(points[i].x, points[i].y);
+              }
+              scene.territoryGraphics.closePath();
+              scene.territoryGraphics.fillPath();
+
+              // Add a border
+              scene.territoryGraphics.lineStyle(1, color, 0.8);
+              scene.territoryGraphics.strokePath();
+            }
+          });
+        });
+
+        // Now render cities on top
+        state.cities.forEach((city) => {
+          if (mapData && mapData[city.y] && mapData[city.y][city.x]) {
+            // Find player index for color
+            let playerIndex = 0;
+            Object.keys(territories).forEach((pid, idx) => {
+              if (pid === city.playerId) playerIndex = idx;
+            });
+
+            const color =
+              scene.playerColors[playerIndex % scene.playerColors.length];
+
+            // Calculate hex center coordinates
+            const centerX = city.x * (hexWidth * 0.75) + hexRadius + offsetX;
+            const centerY =
+              city.y * hexHeight +
+              (city.x % 2 ? hexHeight / 2 : 0) +
+              hexHeight / 2 +
+              offsetY;
+
+            // Draw city hex - solid color
+            const points = hexagonPoints.map((p) => ({
+              x: p.x + centerX,
+              y: p.y + centerY,
+            }));
+
+            scene.cityGraphics.fillStyle(color, 1);
+            scene.cityGraphics.beginPath();
+            scene.cityGraphics.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {
+              scene.cityGraphics.lineTo(points[i].x, points[i].y);
+            }
+            scene.cityGraphics.closePath();
+            scene.cityGraphics.fillPath();
+
+            // Draw city indicator (a simple building shape)
+            scene.cityGraphics.fillStyle(0xffffff, 0.9);
+
+            // Draw a simple building in the center
+            const buildingWidth = hexRadius * 0.6;
+            const buildingHeight = hexRadius * 0.8;
+            scene.cityGraphics.fillRect(
+              centerX - buildingWidth / 2,
+              centerY - buildingHeight / 2,
+              buildingWidth,
+              buildingHeight
+            );
+
+            // Add a roof
+            scene.cityGraphics.fillStyle(0x000000, 0.7);
+            scene.cityGraphics.beginPath();
+            scene.cityGraphics.moveTo(
+              centerX - buildingWidth / 2,
+              centerY - buildingHeight / 2
+            );
+            scene.cityGraphics.lineTo(centerX, centerY - buildingHeight);
+            scene.cityGraphics.lineTo(
+              centerX + buildingWidth / 2,
+              centerY - buildingHeight / 2
+            );
+            scene.cityGraphics.closePath();
+            scene.cityGraphics.fillPath();
+
+            // Add level indicator if greater than 1
+            if (city.level > 1) {
+              scene.cityGraphics.setFont("14px Arial");
+              scene.cityGraphics.setFill("#000000");
+              scene.cityGraphics.fillText(
+                city.level.toString(),
+                centerX - 4,
+                centerY + 5
+              );
+            }
+          }
+        });
+      }
+    }
+  }, [
+    state.phase,
+    state.placingCity,
+    state.cities,
+    state.territories,
+    mapData,
+  ]);
 
   return (
     <div

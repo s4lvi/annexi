@@ -4,8 +4,9 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Header from "@/components/Header";
-import { Users, Swords, Crown, Play, UserX } from "lucide-react";
+import { Users, Swords, Crown, Play, User } from "lucide-react";
 import io from "socket.io-client";
+import { useGameState } from "@/components/gameState"; // Import gameState
 
 export default function LobbyRoom() {
   const router = useRouter();
@@ -16,6 +17,10 @@ export default function LobbyRoom() {
   const [lobbyName, setLobbyName] = useState("");
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
+  const prevLobbyIdRef = useRef(null);
+
+  // Access the gameState context
+  const { dispatch } = useGameState();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -28,6 +33,14 @@ export default function LobbyRoom() {
 
   useEffect(() => {
     if (!lobbyId || !currentUser) return;
+
+    // Check if we're joining a new lobby (different from previous)
+    if (prevLobbyIdRef.current !== lobbyId) {
+      // Reset the game state when joining a new lobby
+      console.log("Resetting game state for new lobby:", lobbyId);
+      dispatch({ type: "RESET_STATE" });
+      prevLobbyIdRef.current = lobbyId;
+    }
 
     if (!socketRef.current) {
       socketRef.current = io(process.env.NEXT_PUBLIC_BACKEND_URL);
@@ -57,7 +70,7 @@ export default function LobbyRoom() {
     return () => {
       joinedRef.current = false;
     };
-  }, [lobbyId, currentUser, router]);
+  }, [lobbyId, currentUser, router, dispatch]);
 
   useEffect(() => {
     if (!lobbyId) return;
@@ -78,6 +91,9 @@ export default function LobbyRoom() {
 
   const handleStartGame = async () => {
     try {
+      // Reset the game state before starting a new game (defensive measure)
+      dispatch({ type: "RESET_STATE" });
+
       const playerIds = players.map((p) => p._id).filter(Boolean);
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}api/match/start`,
@@ -151,7 +167,7 @@ export default function LobbyRoom() {
                       {index === 0 ? (
                         <Crown className="w-5 h-5 text-secondary-400" />
                       ) : (
-                        <UserX className="w-5 h-5 text-neutral-400" />
+                        <User className="w-5 h-5 text-neutral-400" />
                       )}
                     </div>
                     <div>

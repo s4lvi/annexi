@@ -1,14 +1,13 @@
 "use client";
-
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import io from "socket.io-client";
 import { Check } from "lucide-react";
 import PhaseUI from "../../components/PhaseUi";
-import gameState from "../../components/gameState";
+import { useGameState } from "../../components/gameState";
 
-// Dynamically import the PhaserGame component
+// Dynamically import the PhaserGame component.
 const PhaserGame = dynamic(() => import("../../components/PhaserGame"), {
   ssr: false,
 });
@@ -19,37 +18,51 @@ export default function GameContainer() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryLobbyId = searchParams.get("lobbyId");
-  const [mapData, setMapData] = useState(null);
-  const [players, setPlayers] = useState([]);
-  const [lobbyId, setLobbyId] = useState(queryLobbyId);
-  const [phase, setPhase] = useState("expand");
+  const { state, dispatch } = useGameState();
+  const { mapData, players, phase, currentPlayerId } = state;
   const [message, setMessage] = useState("");
-  const [resourcesData, setResourcesData] = useState(null);
   const [timer, setTimer] = useState(null);
   const [user, setUser] = useState(null);
-  const [cityBuilt, setCityBuilt] = useState(false); // New state for whether the city was successfully built
+  const prevLobbyIdRef = useRef(null);
 
-  // Create a ref to access PhaseUI's handleMapClick
+  // Get the current player for display purposes
+  const currentPlayer = players.find((p) => p.id === currentPlayerId);
+
   const phaseUIRef = useRef(null);
 
+  // Memoize this function to keep its reference stable
+  const handleMapClick = useCallback((tileInfo) => {
+    if (phaseUIRef.current) {
+      phaseUIRef.current.handleMapClick(tileInfo);
+    }
+  }, []);
+
   useEffect(() => {
-    // Try to load data from localStorage
+    // Check if we're joining a new game (different from previous)
+    if (prevLobbyIdRef.current !== queryLobbyId) {
+      // Reset the game state when joining a new game
+      console.log("Resetting game state for new game:", queryLobbyId);
+      dispatch({ type: "RESET_STATE" });
+      prevLobbyIdRef.current = queryLobbyId;
+    }
+
+    // Load from localStorage if available.
     const storedMapData = localStorage.getItem("mapData");
     const storedPlayers = localStorage.getItem("lobbyPlayers");
 
     if (storedMapData && storedPlayers && queryLobbyId) {
-      const parsedMapData = JSON.parse(storedMapData);
-      setMapData(parsedMapData);
-      setPlayers(JSON.parse(storedPlayers));
-      setLobbyId(queryLobbyId);
+      dispatch({ type: "SET_MAPDATA", payload: JSON.parse(storedMapData) });
+      dispatch({ type: "SET_PLAYERS", payload: JSON.parse(storedPlayers) });
     } else if (queryLobbyId) {
       fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}api/lobby/${queryLobbyId}`)
         .then((res) => res.json())
         .then((data) => {
           if (data.lobby && data.lobby.mapData) {
-            setMapData(data.lobby.mapData);
-            setPlayers(data.lobby.players || []);
-            setLobbyId(queryLobbyId);
+            dispatch({ type: "SET_MAPDATA", payload: data.lobby.mapData });
+            dispatch({
+              type: "SET_PLAYERS",
+              payload: data.lobby.players || [],
+            });
             localStorage.setItem("mapData", JSON.stringify(data.lobby.mapData));
             localStorage.setItem(
               "lobbyPlayers",
@@ -62,102 +75,136 @@ export default function GameContainer() {
         .catch((err) => console.error("Error fetching lobby data", err));
     }
 
-    // Connect to Socket.IO for real-time updates
+    // Connect to Socket.IO.
     socket = io(process.env.NEXT_PUBLIC_BACKEND_URL);
-    const user = JSON.parse(localStorage.getItem("user"));
-    setUser(user);
+    const userFromStorage = JSON.parse(localStorage.getItem("user"));
+    setUser(userFromStorage);
+
+    if (userFromStorage) {
+      dispatch({ type: "SET_CURRENT_PLAYER", payload: userFromStorage._id });
+    }
+
     socket.emit("joinLobby", {
-      lobbyId: lobbyId || queryLobbyId,
-      username: user?.username,
-      _id: user?._id,
+      lobbyId: queryLobbyId,
+      username: userFromStorage?.username,
+      _id: userFromStorage?._id,
     });
 
     socket.on("lobbyUpdate", (data) => {
-      setPlayers(data.players);
-      if (data.message) {
-        setMessage(data.message);
-      }
+      // The backend now sends players with the expected format
+      dispatch({ type: "SET_PLAYERS", payload: data.players });
+      if (data.message) setMessage(data.message);
     });
 
     socket.on("phaseChange", (data) => {
       console.log("Phase change received:", data);
-      setPhase(data.phase);
+      dispatch({ type: "SET_PHASE", payload: data.phase });
       setTimer(data.phaseDuration);
-      gameState.setPhase(data.phase);
     });
 
-    // When the game starts or re-joins mid-phase, update game state & available cards.
     socket.on("gameStarted", (data) => {
       console.log("Game started/rejoined:", data);
-      if (data.mapData) {
-        setMapData(data.mapData);
-      }
+      if (data.mapData)
+        dispatch({ type: "SET_MAPDATA", payload: data.mapData });
+
       if (data.players) {
-        setPlayers(data.players);
+        // Players are already transformed by the backend
+        dispatch({ type: "SET_PLAYERS", payload: data.players });
       }
-      if (data.phase) {
-        setPhase(data.phase);
-        gameState.setPhase(data.phase);
-      }
-      if (data.phaseDuration) {
-        setTimer(data.phaseDuration);
-      }
-      if (data.cards) {
-        // Update local state and global gameState with the grouped card data.
-        setResourcesData({
-          ...data.cards,
-          production: data.production, // assume backend sends player's current production
-        });
-        gameState.setResources({
-          production: data.production,
-          cards: data.cards,
+
+      if (data.phase) dispatch({ type: "SET_PHASE", payload: data.phase });
+      if (data.phaseDuration) setTimer(data.phaseDuration);
+
+      // Update cards for the current player
+      if (data.cards && userFromStorage) {
+        dispatch({
+          type: "UPDATE_PLAYER_RESOURCES",
+          payload: {
+            id: userFromStorage._id,
+            production: data.production,
+            cards: data.cards,
+          },
         });
       }
     });
 
-    // Listen for resource updates.
     socket.on("resourceUpdate", (data) => {
-      console.log(resourcesData);
-      setResourcesData((prev) => ({
-        ...prev,
-        production: data.production,
-      }));
-      gameState.setResources((prev) => ({
-        ...prev,
-        production: data.production,
-      }));
+      console.log("Resource update received:", data);
+      if (userFromStorage) {
+        dispatch({
+          type: "UPDATE_PLAYER_RESOURCES",
+          payload: {
+            id: userFromStorage._id,
+            production: data.production,
+            gold: data.gold,
+          },
+        });
+      }
     });
 
     socket.on("buildCitySuccess", (data) => {
       console.log("City build succeeded:", data);
-      const { type, level, x, y } = data;
-      setMapData((prevMap) => {
-        if (!prevMap) return prevMap;
-        const newMap = prevMap.map((row) =>
-          row.map((tile) => {
-            // Match tile based on x and y coordinates.
-            if (tile.x === x && tile.y === y) {
-              // Add a city property to the tile.
-              return { ...tile, city: { type, level, x, y } };
-            }
-            return tile;
-          })
-        );
-        return newMap;
+      const { username, type, level, x, y, playerId } = data;
+      console.log("City built by player:", data);
+      // Use playerId directly from the backend response
+      const cityPlayerId = playerId;
+
+      // Add city to state (regardless of who built it)
+      dispatch({
+        type: "ADD_CITY",
+        payload: {
+          x,
+          y,
+          type,
+          level,
+          playerId: cityPlayerId,
+        },
       });
-      setCityBuilt(true);
+
+      // Add territory around the city
+      //   const territoryRadius = 7;
+      //   for (let dx = -territoryRadius; dx <= territoryRadius; dx++) {
+      //     for (let dy = -territoryRadius; dy <= territoryRadius; dy++) {
+      //       dispatch({
+      //         type: "ADD_TERRITORY",
+      //         payload: {
+      //           playerId: cityPlayerId,
+      //           territory: { x: x + dx, y: y + dy },
+      //         },
+      //       });
+      //     }
+      //   }
+
+      if (cityPlayerId === userFromStorage._id) {
+        console.log("City built by current player:", username);
+        dispatch({ type: "SET_CITY_BUILT", payload: true });
+      }
     });
 
     socket.on("buildCityError", (data) => {
       console.error("City build failed:", data);
-      // Reset the city build flag so the UI goes back to the base city card stage.
-      setCityBuilt(false);
+      dispatch({ type: "SET_CITY_BUILT", payload: false });
+    });
+
+    socket.on("cardPurchaseSuccess", (data) => {
+      console.log("Card purchase success:", data);
+      if (userFromStorage) {
+        dispatch({
+          type: "UPDATE_PLAYER_RESOURCES",
+          payload: {
+            id: userFromStorage._id,
+            production: data.production,
+            gold: data.gold,
+            cards: data.currentCards,
+          },
+        });
+      }
     });
 
     return () => {
       if (socket) socket.disconnect();
     };
-  }, [queryLobbyId, lobbyId]);
+  }, [queryLobbyId, dispatch]);
 
   useEffect(() => {
     let countdownInterval;
@@ -175,62 +222,58 @@ export default function GameContainer() {
     return () => clearInterval(countdownInterval);
   }, [timer]);
 
-  // Called by PhaseUI when a valid city placement is made.
   const handleCityPlacement = (tileInfo) => {
     console.log("City placed at", tileInfo);
-    // Emit buildCity request; waiting for server response to update UI.
-    socket.emit("buildCity", { lobbyId, tile: tileInfo, _id: user?._id });
+    socket.emit("buildCity", {
+      lobbyId: queryLobbyId,
+      tile: tileInfo,
+      _id: user?._id,
+    });
   };
 
   const handleCardSelected = (card) => {
     console.log("Card selected:", card);
-    socket.emit("buyCard", { lobbyId, card });
+    socket.emit("buyCard", { lobbyId: queryLobbyId, card });
   };
 
   const handleCancelPlacement = () => {
     console.log("City placement canceled");
   };
 
-  // This onMapClick is passed to PhaserGame. It will forward tile clicks from ControlsManager.
-  const handleMapClick = (tileInfo) => {
-    if (phaseUIRef.current) {
-      phaseUIRef.current.handleMapClick(tileInfo);
-    }
+  const handleReady = () => {
+    const userFromStorage = JSON.parse(localStorage.getItem("user"));
+    socket.emit("playerReady", {
+      lobbyId: queryLobbyId,
+      username: userFromStorage?.username,
+      _id: userFromStorage?._id,
+    });
   };
 
-  const handleReady = () => {
-    const user = JSON.parse(localStorage.getItem("user"));
-    console.log("Emitting playerReady with lobbyId:", lobbyId || queryLobbyId);
-    socket.emit("playerReady", {
-      lobbyId: lobbyId || queryLobbyId,
-      username: user?.username,
-      _id: user?._id,
-    });
+  // Additional handler to go back to lobby and reset state
+  const handleBackToLobby = () => {
+    // Reset state before navigating back
+    dispatch({ type: "RESET_STATE" });
+    router.push("/lobby");
   };
 
   return (
     <div className="relative w-screen h-screen overflow-hidden">
-      {/* Phaser game canvas */}
       <PhaserGame
         mapData={mapData}
-        matchId={lobbyId}
+        matchId={queryLobbyId}
         onMapClick={handleMapClick}
       />
-
-      {/* PhaseUI with ref and cityBuilt prop */}
       <PhaseUI
         ref={phaseUIRef}
-        phase={phase}
-        resourcesData={resourcesData}
-        cityBuilt={cityBuilt}
         onCityPlacement={handleCityPlacement}
         onCardSelected={handleCardSelected}
         onCancelPlacement={handleCancelPlacement}
       />
-
-      {/* Other UI elements (e.g., header, player list, buttons) */}
       <div className="absolute top-5 left-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
-        <h2>Game Room: {lobbyId}</h2>
+        <h2>Game Room: {queryLobbyId}</h2>
+        <h3>
+          Player: {user ? user.username + " (" + user._id + ")" : "Guest"}{" "}
+        </h3>
         <h3>
           Phase: {phase} {timer !== null && `(${Math.floor(timer / 1000)}s)`}
         </h3>
@@ -245,6 +288,7 @@ export default function GameContainer() {
           ))}
         </ul>
         <hr />
+        <p>Production: {currentPlayer?.production || 0}</p>
         <button
           onClick={handleReady}
           className="mt-2 px-4 py-2 rounded bg-green-500 text-white"
@@ -252,13 +296,12 @@ export default function GameContainer() {
           Ready
         </button>
         <button
-          onClick={() => router.push("/lobby")}
+          onClick={handleBackToLobby}
           className="mt-2 ml-2 px-4 py-2 rounded bg-green-500 text-white"
         >
           Back to Lobby
         </button>
       </div>
-
       <div className="absolute top-5 right-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
         {message && <p>{message}</p>}
       </div>

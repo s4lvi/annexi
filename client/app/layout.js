@@ -1,4 +1,5 @@
 // app/layout.js
+import { GameStateProvider } from "../components/gameState";
 import "./globals.css";
 
 export const metadata = {
@@ -26,7 +27,9 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <GameStateProvider>{children}</GameStateProvider>
+      </body>
     </html>
   );
 }

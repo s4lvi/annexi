@@ -54,11 +54,16 @@ const cardData = [
   },
 ];
 
-// Helper: dummy validation function for city placement
+function updatePlayerResources(player, socket) {
+  // Build a complete resource object.
+  const resourceUpdate = {
+    production: player.production,
+    gold: player.gold || 0,
+  };
+  socket.emit("resourceUpdate", resourceUpdate);
+}
+
 function validateCityPlacement(lobby, tile) {
-  // Here you would add your own validation logic based on your game rules
-  // For now, assume the tile is valid if it is not already occupied.
-  // (Assume each lobby stores a set of occupied tiles.)
   lobby.occupiedTiles = lobby.occupiedTiles || new Set();
   if (lobby.occupiedTiles.has(JSON.stringify(tile))) {
     return false;
@@ -66,33 +71,26 @@ function validateCityPlacement(lobby, tile) {
   return true;
 }
 
-// Helper: collect production resources for each player when entering the "expand" phase.
 function collectResources(lobby, io) {
   lobby.players.forEach((player) => {
-    // Each city produces 10 production per turn.
     const productionFromCities = player.cities.length * 10;
-    // You might also add a base production (starting at 10).
     player.production += productionFromCities;
-    // Emit a resource update to the player.
-    // (If you want to target a specific socket, you can use io.to(player.socketId))
+    // Emit updated resources to the specific player.
     io.to(player.socketId).emit("resourceUpdate", {
       production: player.production,
-      cities: player.cities,
+      gold: player.gold || 0,
     });
   });
 }
 
-// Function to create or restart the phase timer for a lobby.
 function createPhaseTimer(lobbyId, io) {
   const phaseDuration = lobbies[lobbyId].settings.phaseDuration;
   return setInterval(() => {
     try {
       console.log("Changing phase for lobby:", lobbyId);
-      // Toggle phase: if "expand", switch to "conquer", and vice-versa.
       lobbies[lobbyId].phase =
         lobbies[lobbyId].phase === "expand" ? "conquer" : "expand";
 
-      // On entering the expand phase, collect resources.
       if (lobbies[lobbyId].phase === "expand") {
         collectResources(lobbies[lobbyId], io);
       }
@@ -115,7 +113,6 @@ module.exports = function (io) {
       const { lobbyId, username, _id } = data;
       socket.join(`lobby-${lobbyId}`);
 
-      // If the lobby doesn't exist, create it with default settings.
       if (!lobbies[lobbyId]) {
         lobbies[lobbyId] = {
           players: [],
@@ -123,25 +120,37 @@ module.exports = function (io) {
           timer: null,
           phase: "expand",
           settings: {
-            phaseDuration: 300000, // default to 30 seconds; changeable later
+            phaseDuration: 300000, // 5 minutes (adjust as needed)
           },
         };
       }
 
-      // Add the player to the lobby if not already present.
       if (lobbies[lobbyId].players.some((p) => p._id === _id)) {
         console.log("Player already in lobby:", username);
         return;
       }
-      // Initialize player state: starting production, no cities, base cards.
+
+      // Create grouped card types for the player to start with
+      const playerCards = {
+        citycards: cardData.filter((card) => card.type === "city"),
+        resourcestructures: cardData.filter((card) => card.type === "resource"),
+        defensivestructures: cardData.filter(
+          (card) => card.type === "defensive"
+        ),
+        units: cardData.filter((card) => card.type === "unit"),
+        effects: cardData.filter((card) => card.type === "effect"),
+      };
+
       lobbies[lobbyId].players.push({
         socketId: socket.id,
         username,
         _id,
         ready: false,
-        production: 10, // starting production resource
-        cities: [], // list of built cities; the first city is the capital
-        cards: [cardData.find((c) => c.type === "city")], // base city card
+        production: 10,
+        gold: 0,
+        cities: [],
+        // Store cards in the player object with the correct grouped structure
+        cards: playerCards,
       });
 
       io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
@@ -150,7 +159,6 @@ module.exports = function (io) {
       });
     });
 
-    // Start game event initializes phase and sets up the phase timer.
     socket.on("startGame", (data) => {
       const { lobbyId, mapData } = data;
       console.log("Starting game for lobby:", lobbyId);
@@ -158,7 +166,6 @@ module.exports = function (io) {
 
       lobbies[lobbyId].phase = "expand";
 
-      // Group cards by type.
       const groupedCards = {
         citycards: cardData.filter((card) => card.type === "city"),
         resourcestructures: cardData.filter((card) => card.type === "resource"),
@@ -175,16 +182,15 @@ module.exports = function (io) {
         phase: lobbies[lobbyId].phase,
         phaseDuration: lobbies[lobbyId].settings.phaseDuration,
         cards: groupedCards,
+        production: lobbies[lobbyId].players[0].production, // example
       });
 
-      // Restart the phase timer.
       if (lobbies[lobbyId].timer) {
         clearInterval(lobbies[lobbyId].timer);
       }
       lobbies[lobbyId].timer = createPhaseTimer(lobbyId, io);
     });
 
-    // Handle player ready events.
     socket.on("playerReady", (data) => {
       const { lobbyId, username, _id } = data;
       if (lobbies[lobbyId]) {
@@ -211,7 +217,6 @@ module.exports = function (io) {
           }
           lobbies[lobbyId].phase =
             lobbies[lobbyId].phase === "expand" ? "conquer" : "expand";
-          // If the new phase is "expand", update resources.
           if (lobbies[lobbyId].phase === "expand") {
             collectResources(lobbies[lobbyId], io);
           }
@@ -232,24 +237,17 @@ module.exports = function (io) {
       }
     });
 
-    // Handle city building event.
     socket.on("buildCity", (data) => {
       console.log("Received buildCity event with data:", data);
       const { lobbyId, tile, _id } = data;
-      console.log("Building city on tile:", tile, "for player:", _id);
       const lobby = lobbies[lobbyId];
       if (!lobby) return;
-      // Find the player attempting to build.
       const player = lobby.players.find((p) => p._id === _id);
       if (!player) return;
-      console.log("Player found:", player.username);
-      // Validate tile placement.
       if (!validateCityPlacement(lobby, tile)) {
         socket.emit("buildCityError", { message: "Invalid or occupied tile." });
         return;
       }
-      console.log("Tile placement validated for player:", player.username);
-      // Assume a fixed city cost of 10 production.
       const cityCost = 10;
       if (player.production < cityCost) {
         socket.emit("buildCityError", {
@@ -257,48 +255,32 @@ module.exports = function (io) {
         });
         return;
       }
-      console.log("Player has enough resources to build city.");
-
-      // Deduct cost and add new city.
       player.production -= cityCost;
-      // Add the city to the player's list (e.g., include tile info and initial level).
       const newCity = { tile, level: 1 };
       player.cities.push(newCity);
-      // Mark the tile as occupied.
       lobby.occupiedTiles.add(JSON.stringify(tile));
-      console.log("New city added for player:", player.username, newCity);
-      // Emit success to all clients in the lobby.
       io.to(`lobby-${lobbyId}`).emit("buildCitySuccess", {
         username: player.username,
-        type: newCity.type,
-        leve: newCity.level,
+        type: "city",
+        level: newCity.level,
         x: newCity.tile.x,
         y: newCity.tile.y,
+        playerId: player._id,
       });
-
-      // Send updated resource count to the player.
-      socket.emit("resourceUpdate", { production: player.production });
+      updatePlayerResources(player, socket);
     });
 
-    // Handle card selection / purchase.
     socket.on("buyCard", (data) => {
       const { lobbyId, card } = data;
       const lobby = lobbies[lobbyId];
       if (!lobby) return;
-
-      // Find the player.
       const player = lobby.players.find((p) => p.socketId === socket.id);
       if (!player) return;
-
-      // Find the card definition from our dummy data
       const cardDef = cardData.find((c) => c.id === card.id);
       if (!cardDef) {
         socket.emit("cardPurchaseError", { message: "Card not found." });
         return;
       }
-
-      // Check if the player has enough production to buy this card.
-      // (Later, you can add checks for special resources like horses, iron, etc.)
       const cost = cardDef.cost.production;
       if (player.production < cost) {
         socket.emit("cardPurchaseError", {
@@ -306,21 +288,45 @@ module.exports = function (io) {
         });
         return;
       }
-
-      // Deduct the production cost.
       player.production -= cost;
 
-      // Add the purchased card to the player's cards.
-      player.cards = player.cards || [];
-      player.cards.push(cardDef);
+      // Initialize cards object if it doesn't exist
+      if (!player.cards) {
+        player.cards = {
+          citycards: [],
+          resourcestructures: [],
+          defensivestructures: [],
+          units: [],
+          effects: [],
+        };
+      }
 
-      // Respond back with a success message and updated production count.
+      // Add the card to the appropriate category
+      const category =
+        cardDef.type === "city"
+          ? "citycards"
+          : cardDef.type === "resource"
+          ? "resourcestructures"
+          : cardDef.type === "defensive"
+          ? "defensivestructures"
+          : cardDef.type === "unit"
+          ? "units"
+          : "effects";
+
+      // Make sure the category exists as an array
+      if (!player.cards[category]) {
+        player.cards[category] = [];
+      }
+
+      player.cards[category].push(cardDef);
+
       socket.emit("cardPurchaseSuccess", {
         card: cardDef,
         message: `${cardDef.name} purchased successfully.`,
         currentCards: player.cards,
         production: player.production,
       });
+      updatePlayerResources(player, socket);
     });
 
     socket.on("disconnect", () => {

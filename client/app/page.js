@@ -5,6 +5,16 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import Image from "next/image";
 
+const generateHexId = () => {
+  let hexString = "";
+  for (let i = 0; i < 24; i++) {
+    // Generate a random hex digit (0-f)
+    const hexDigit = Math.floor(Math.random() * 16).toString(16);
+    hexString += hexDigit;
+  }
+  return hexString;
+};
+
 export default function LandingPage() {
   const router = useRouter();
   const user =
@@ -18,9 +28,10 @@ export default function LandingPage() {
   }, [user]);
   const playAsGuest = () => {
     // Generate a random guest username
+    const guestId = generateHexId();
     const guestUser = {
-      username: `Guest-${Math.floor(Math.random() * 10000)}`,
-      _id: `guest_${Date.now()}`,
+      username: `Guest_${guestId.substring(0, 4)}`, // Use first 8 chars for readable username
+      _id: guestId, // Full 24-character hex string for MongoDB ObjectId
       isGuest: true,
     };
     localStorage.setItem("user", JSON.stringify(guestUser));

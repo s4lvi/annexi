@@ -90,6 +90,7 @@ function gameReducer(state, action) {
       };
 
     case "UPDATE_PLAYER_RESOURCES":
+      console.log("Updating player resources:", action.payload);
       return {
         ...state,
         players: state.players.map((player) =>

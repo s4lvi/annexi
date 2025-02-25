@@ -1,11 +1,12 @@
-// Updated ResourceBar.jsx
-import React, { useState, useEffect } from "react";
+// Fixed ResourceBar.jsx
+import React, { useState, useEffect, useRef } from "react";
 import { useGameState } from "./gameState";
 
-export default function ResourceBar({ resourceValue }) {
-  const [displayValue, setDisplayValue] = useState(resourceValue);
+export default function ResourceBar({ resourceValue, icon }) {
+  const [displayValue, setDisplayValue] = useState(0);
   const { state } = useGameState();
   const { players, currentPlayerId } = state;
+  const animationRef = useRef(null);
 
   // Get the current player's actual production value from game state
   const currentPlayer = players.find((p) => p._id === currentPlayerId);
@@ -14,11 +15,22 @@ export default function ResourceBar({ resourceValue }) {
     : resourceValue;
 
   useEffect(() => {
+    // Clear any existing animation
+    if (animationRef.current) {
+      clearInterval(animationRef.current);
+      animationRef.current = null;
+    }
+
     // Use the value from the player state if it exists
     const targetValue =
       actualProduction !== undefined ? actualProduction : resourceValue;
 
-    let startValue = displayValue;
+    // Skip animation if the values are the same
+    if (displayValue === targetValue) {
+      return;
+    }
+
+    const startValue = displayValue;
     const endValue = targetValue;
     const duration = 1000; // animation duration in ms
     const stepTime = 50; // update every 50ms
@@ -26,34 +38,45 @@ export default function ResourceBar({ resourceValue }) {
     const increment = (endValue - startValue) / steps;
     let current = startValue;
 
-    // Only animate if the values are different
-    if (startValue !== endValue) {
-      const interval = setInterval(() => {
-        current += increment;
+    // Start new animation
+    animationRef.current = setInterval(() => {
+      current += increment;
+
+      // Check if animation is complete
+      if (
+        (increment > 0 && current >= endValue) ||
+        (increment < 0 && current <= endValue)
+      ) {
+        clearInterval(animationRef.current);
+        animationRef.current = null;
+        setDisplayValue(endValue);
+      } else {
         setDisplayValue(Math.floor(current));
-        if (
-          (increment > 0 && current >= endValue) ||
-          (increment < 0 && current <= endValue)
-        ) {
-          clearInterval(interval);
-          setDisplayValue(endValue);
-        }
-      }, stepTime);
+      }
+    }, stepTime);
 
-      return () => clearInterval(interval);
-    }
-  }, [resourceValue, actualProduction, displayValue]);
+    // Clean up on unmount or when dependencies change
+    return () => {
+      if (animationRef.current) {
+        clearInterval(animationRef.current);
+        animationRef.current = null;
+      }
+    };
+  }, [resourceValue, actualProduction]); // Removed displayValue from dependency array
 
-  // Update display with gameState directly if needed
+  // Optional initial setup
   useEffect(() => {
-    if (currentPlayer && currentPlayer.production !== undefined) {
-      setDisplayValue(currentPlayer.production);
+    // Set initial value without animation when component first mounts
+    if (displayValue === 0 && actualProduction > 0) {
+      setDisplayValue(actualProduction);
     }
-  }, [currentPlayer]);
+  }, []); // Empty dependency array means it only runs once on mount
 
   return (
-    <div className="resource-bar p-2 bg-gray-800 text-white rounded">
-      <span>Production: {displayValue}</span>
+    <div className="resource-bar p-2 text-white rounded">
+      <span>
+        <span className="text-yellow-400 mr-1">{icon}</span> {displayValue}
+      </span>
     </div>
   );
 }

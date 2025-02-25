@@ -72,8 +72,8 @@ const noise = {
 };
 
 function generateRandomMap() {
-  const width = 200;
-  const height = 100;
+  const width = 100;
+  const height = 50;
   const map = [];
 
   // Initialize noise

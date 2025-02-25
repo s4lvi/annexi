@@ -1,4 +1,3 @@
-// app/lobby/[lobbyId]/page.js
 "use client";
 
 import { useEffect, useState, useRef } from "react";
@@ -6,35 +5,39 @@ import { useRouter, useParams } from "next/navigation";
 import Header from "@/components/Header";
 import { Users, Swords, Crown, Play, User } from "lucide-react";
 import io from "socket.io-client";
-import { useGameState } from "@/components/gameState"; // Import gameState
+import { useGameState } from "@/components/gameState";
+import { useAuth } from "@/components/AuthContext";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export default function LobbyRoom() {
   const router = useRouter();
   const { lobbyId } = useParams();
   const [players, setPlayers] = useState([]);
   const [message, setMessage] = useState("");
-  const [currentUser, setCurrentUser] = useState(null);
   const [lobbyName, setLobbyName] = useState("");
+  const [localLoading, setLocalLoading] = useState(true);
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
   const prevLobbyIdRef = useRef(null);
+
+  // Auth context
+  const { user, loading, ensureUser } = useAuth();
 
   // Access the gameState context
   const { dispatch } = useGameState();
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const storedUser = localStorage.getItem("user");
-      if (storedUser) {
-        setCurrentUser(JSON.parse(storedUser));
-      }
-    }
-  }, []);
+    if (loading) return;
 
-  useEffect(() => {
-    if (!lobbyId || !currentUser) return;
+    if (!user) {
+      // Redirect to login if no user is found
+      router.push("/");
+      return;
+    }
 
     // Check if we're joining a new lobby (different from previous)
+    if (!lobbyId) return;
+
     if (prevLobbyIdRef.current !== lobbyId) {
       // Reset the game state when joining a new lobby
       console.log("Resetting game state for new lobby:", lobbyId);
@@ -43,6 +46,7 @@ export default function LobbyRoom() {
     }
 
     if (!socketRef.current) {
+      // Initialize socket connection
       socketRef.current = io(process.env.NEXT_PUBLIC_BACKEND_URL);
 
       socketRef.current.on("lobbyUpdate", (data) => {
@@ -59,6 +63,9 @@ export default function LobbyRoom() {
     }
 
     if (!joinedRef.current) {
+      // Ensure we have a valid user by falling back to guest if needed
+      const currentUser = ensureUser();
+
       socketRef.current.emit("joinLobby", {
         lobbyId,
         username: currentUser.username,
@@ -70,10 +77,13 @@ export default function LobbyRoom() {
     return () => {
       joinedRef.current = false;
     };
-  }, [lobbyId, currentUser, router, dispatch]);
+  }, [lobbyId, user, loading, router, dispatch, ensureUser]);
 
   useEffect(() => {
     if (!lobbyId) return;
+
+    setLocalLoading(true);
+
     fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}api/lobby/${lobbyId}`)
       .then((res) => res.json())
       .then((data) => {
@@ -82,15 +92,20 @@ export default function LobbyRoom() {
         }
         console.log("Lobby data:", data);
         setLobbyName(data.lobby.name);
+        setLocalLoading(false);
       })
       .catch((err) => {
         console.error("Error checking lobby state", err);
         setMessage("Error checking lobby state");
+        setLocalLoading(false);
       });
   }, [lobbyId, router]);
 
   const handleStartGame = async () => {
     try {
+      // Ensure we have a valid user
+      const currentUser = ensureUser();
+
       // Reset the game state before starting a new game (defensive measure)
       dispatch({ type: "RESET_STATE" });
 
@@ -123,8 +138,13 @@ export default function LobbyRoom() {
     }
   };
 
+  // Check if current user is host
   const isHost =
-    players.length > 0 && players[0].username === currentUser?.username;
+    user && players.length > 0 && players[0].username === user.username;
+
+  if (loading || localLoading) {
+    return <LoadingScreen message="Entering lobby..." />;
+  }
 
   return (
     <div className="min-h-screen bg-neutral-900">
@@ -159,7 +179,7 @@ export default function LobbyRoom() {
               </div>
               {players.map((player, index) => (
                 <div
-                  key={player.socketId}
+                  key={player.socketId || player._id}
                   className="flex items-center justify-between p-4 bg-neutral-700 rounded-lg border border-neutral-600 transition-colors hover:border-secondary-500/50"
                 >
                   <div className="flex items-center gap-3">

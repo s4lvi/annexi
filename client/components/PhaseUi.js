@@ -6,10 +6,31 @@ import { ConquerPhaseUI } from "./ConquerPhaseUI";
 import { ResolutionPhaseUI } from "./ResolutionPhaseUI";
 
 // Validation functions (or import them if moved elsewhere)
-const validateCityPlacement = (tile) => tile.type === "grass";
-const validateStructurePlacement = (tile, currentPlayerId) => {
-  // Add your own logic here; for now return true.
-  return true;
+export const validateCityPlacement = (tile, state) => {
+  // Always check the basic tile type
+  if (tile.type !== "grass") return false;
+
+  const { players, currentPlayerId, territories } = state;
+  const currentPlayer = players.find((p) => p._id === currentPlayerId);
+
+  // If this is the player's first city, they can place anywhere on grass
+  if (
+    !currentPlayer ||
+    !territories[currentPlayerId] ||
+    territories[currentPlayerId].length === 0
+  ) {
+    return true;
+  }
+
+  // Check if the tile is within the player's territory
+  const playerTerritory = territories[currentPlayerId] || [];
+  return playerTerritory.some((t) => t.x === tile.x && t.y === tile.y);
+};
+
+const validateStructurePlacement = (tile, currentPlayerId, state) => {
+  // Check if the tile is within the player's territory
+  const playerTerritory = state.territories[currentPlayerId] || [];
+  return playerTerritory.some((t) => t.x === tile.x && t.y === tile.y);
 };
 const validateTargetSelection = (tile, currentPlayerId) => {
   // For now return true; you can improve this logic later.
@@ -38,7 +59,7 @@ const PhaseUI = forwardRef((props, ref) => {
   // Map click handler delegated based on phase.
   const handleMapClick = (tileInfo) => {
     if (phase === "expand" && placingCity) {
-      const valid = validateCityPlacement(tileInfo);
+      const valid = validateCityPlacement(tileInfo, state);
       console.log("Valid city placement:", valid);
       if (valid) {
         // Pass the tile info back to the parent so it can build the city.
@@ -47,7 +68,11 @@ const PhaseUI = forwardRef((props, ref) => {
         dispatch({ type: "SET_PLACING_CITY", payload: false });
       }
     } else if (phase === "conquer" && placingStructure && expansionComplete) {
-      const valid = validateStructurePlacement(tileInfo, currentPlayerId);
+      const valid = validateStructurePlacement(
+        tileInfo,
+        currentPlayerId,
+        state
+      );
       console.log("Valid structure placement:", valid);
       if (valid && props.onStructurePlacement) {
         props.onStructurePlacement(tileInfo);

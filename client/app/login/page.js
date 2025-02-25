@@ -1,10 +1,11 @@
-// app/login/page.js
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import { UserIcon, MailIcon, LockIcon, Loader } from "lucide-react";
+import { useAuth } from "@/components/AuthContext";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export default function LoginPage() {
   const [mode, setMode] = useState("login");
@@ -14,6 +15,13 @@ export default function LoginPage() {
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const { user, loading, login } = useAuth();
+
+  useEffect(() => {
+    if (!loading && user) {
+      router.push("/lobby");
+    }
+  }, [user, loading, router]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -38,7 +46,7 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        localStorage.setItem("user", JSON.stringify(data.user));
+        login(data.user);
         router.push("/lobby");
       } else {
         setMessage(data.message);
@@ -50,6 +58,10 @@ export default function LoginPage() {
       setIsLoading(false);
     }
   };
+
+  if (loading) {
+    return <LoadingScreen message="Verifying your credentials..." />;
+  }
 
   return (
     <div className="min-h-screen bg-neutral-900">

@@ -7,6 +7,9 @@ import { Check } from "lucide-react";
 import PhaseUI from "../../components/PhaseUi";
 import { useGameState } from "../../components/gameState";
 import ResourceBar from "../../components/ResourceBar";
+import { useAuth } from "@/components/AuthContext";
+import LoadingScreen from "@/components/LoadingScreen";
+
 // Dynamically import the PhaserGame component.
 const PhaserGame = dynamic(() => import("../../components/PhaserGame"), {
   ssr: false,
@@ -21,14 +24,17 @@ export default function GameContainer() {
   const { state, dispatch } = useGameState();
   const { mapData, players, phase, currentPlayerId } = state;
   const [message, setMessage] = useState("");
-  const [user, setUser] = useState(null);
-  const [production, setProduction] = useState(0);
+  const [localLoading, setLocalLoading] = useState(true);
   const prevLobbyIdRef = useRef(null);
+  const phaseUIRef = useRef(null);
+  const socketInitializedRef = useRef(false);
+  const currentUserRef = useRef(null);
+
+  // Auth context
+  const { user, loading, ensureUser } = useAuth();
 
   // Get the current player for display purposes
   const currentPlayer = players.find((p) => p._id === currentPlayerId);
-
-  const phaseUIRef = useRef(null);
 
   // Memoize this function to keep its reference stable
   const handleMapClick = useCallback((tileInfo) => {
@@ -37,64 +43,115 @@ export default function GameContainer() {
     }
   }, []);
 
+  // Effect 1: Basic auth and navigation check - runs on auth state change
   useEffect(() => {
-    // Check if we're joining a new game (different from previous)
+    if (loading) return;
+
+    // If no user, try to recover or redirect
+    if (!user) {
+      const recoveredUser = ensureUser();
+      if (!recoveredUser) {
+        router.push("/");
+        return;
+      }
+    }
+
+    // If no lobby ID, go back to lobby list
+    if (!queryLobbyId) {
+      router.push("/lobby");
+    }
+  }, [loading, user, queryLobbyId, router, ensureUser]);
+
+  // Effect 2: Game initialization - runs once when joining a new game
+  useEffect(() => {
+    // Skip if still loading auth or no lobby ID
+    if (loading || !queryLobbyId) return;
+
+    // Check if joining a new game
     if (prevLobbyIdRef.current !== queryLobbyId) {
-      // Reset the game state when joining a new game
+      // Reset game state for new game
       console.log("Resetting game state for new game:", queryLobbyId);
       dispatch({ type: "RESET_STATE" });
       prevLobbyIdRef.current = queryLobbyId;
+
+      // Store current user reference (without triggering re-renders)
+      const currentUser = ensureUser();
+      currentUserRef.current = currentUser;
+
+      // Set current player ID once
+      console.log("Setting user in game state:", currentUser.username);
+      dispatch({ type: "SET_CURRENT_PLAYER", payload: currentUser._id });
+
+      // Load data from localStorage if available
+      const storedMapData = localStorage.getItem("mapData");
+      const storedPlayers = localStorage.getItem("lobbyPlayers");
+
+      if (storedMapData && storedPlayers) {
+        dispatch({ type: "SET_MAPDATA", payload: JSON.parse(storedMapData) });
+        dispatch({ type: "SET_PLAYERS", payload: JSON.parse(storedPlayers) });
+        setLocalLoading(false);
+      } else {
+        // Fetch from API if not in localStorage
+        fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}api/lobby/${queryLobbyId}`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.lobby && data.lobby.mapData) {
+              dispatch({ type: "SET_MAPDATA", payload: data.lobby.mapData });
+              dispatch({
+                type: "SET_PLAYERS",
+                payload: data.lobby.players || [],
+              });
+              localStorage.setItem(
+                "mapData",
+                JSON.stringify(data.lobby.mapData)
+              );
+              localStorage.setItem(
+                "lobbyPlayers",
+                JSON.stringify(data.lobby.players || [])
+              );
+            } else {
+              console.error("No map data in lobby:", data);
+            }
+            setLocalLoading(false);
+          })
+          .catch((err) => {
+            console.error("Error fetching lobby data", err);
+            setLocalLoading(false);
+          });
+      }
     }
+  }, [loading, queryLobbyId, dispatch, ensureUser]);
 
-    // Load from localStorage if available.
-    const storedMapData = localStorage.getItem("mapData");
-    const storedPlayers = localStorage.getItem("lobbyPlayers");
+  // Effect 3: Socket connection - runs when currentPlayerId is set
+  useEffect(() => {
+    // Skip if required data isn't ready
+    if (
+      loading ||
+      !queryLobbyId ||
+      !currentPlayerId ||
+      socketInitializedRef.current
+    )
+      return;
 
-    if (storedMapData && storedPlayers && queryLobbyId) {
-      dispatch({ type: "SET_MAPDATA", payload: JSON.parse(storedMapData) });
-      dispatch({ type: "SET_PLAYERS", payload: JSON.parse(storedPlayers) });
-    } else if (queryLobbyId) {
-      fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}api/lobby/${queryLobbyId}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.lobby && data.lobby.mapData) {
-            dispatch({ type: "SET_MAPDATA", payload: data.lobby.mapData });
-            dispatch({
-              type: "SET_PLAYERS",
-              payload: data.lobby.players || [],
-            });
-            localStorage.setItem("mapData", JSON.stringify(data.lobby.mapData));
-            localStorage.setItem(
-              "lobbyPlayers",
-              JSON.stringify(data.lobby.players || [])
-            );
-          } else {
-            console.error("No map data in lobby:", data);
-          }
-        })
-        .catch((err) => console.error("Error fetching lobby data", err));
-    }
-
-    // Connect to Socket.IO.
+    // Set up socket connection (only once)
     socket = io(process.env.NEXT_PUBLIC_BACKEND_URL);
-    const userFromStorage = JSON.parse(localStorage.getItem("user"));
-    setUser(userFromStorage);
+    socketInitializedRef.current = true;
 
-    if (userFromStorage) {
-      dispatch({ type: "SET_CURRENT_PLAYER", payload: userFromStorage._id });
-    }
+    // Get current user info for socket events
+    const currentUser = currentUserRef.current || ensureUser();
 
     socket.emit("joinLobby", {
       lobbyId: queryLobbyId,
-      username: userFromStorage?.username,
-      _id: userFromStorage?._id,
+      username: currentUser.username,
+      _id: currentPlayerId,
     });
 
     socket.emit("requestFullState", {
       lobbyId: queryLobbyId,
-      _id: userFromStorage?._id,
+      _id: currentPlayerId,
     });
 
+    // Socket event handlers
     socket.on("fullStateUpdate", (data) => {
       console.log("Received full state update:", data);
 
@@ -167,13 +224,6 @@ export default function GameContainer() {
       if (data.message) {
         setMessage(data.message);
       }
-
-      // Force a console.log of the current game state for debugging
-      const userFromStorage = JSON.parse(localStorage.getItem("user"));
-      const currentPlayer = data.players?.find(
-        (p) => p._id === userFromStorage?._id
-      );
-      console.log("Current player state:", currentPlayer);
     });
 
     socket.on("lobbyUpdate", (data) => {
@@ -184,11 +234,9 @@ export default function GameContainer() {
 
     socket.on("phaseChange", (data) => {
       console.log("Phase change received:", data);
-      const previousPhase = state.phase;
-      const newPhase = data.phase;
 
       // Update phase in state
-      dispatch({ type: "SET_PHASE", payload: newPhase });
+      dispatch({ type: "SET_PHASE", payload: data.phase });
 
       // Show message if provided
       if (data.message) {
@@ -196,29 +244,12 @@ export default function GameContainer() {
       }
 
       // If we're entering the expand phase, reset cityBuilt
-      if (newPhase === "expand") {
+      if (data.phase === "expand") {
         console.log("Phase changed to expand - resetting cityBuilt flag");
         dispatch({ type: "SET_CITY_BUILT", payload: false });
-
-        // Force a check for the user's current resources
-        const userFromStorage = JSON.parse(localStorage.getItem("user"));
-        if (userFromStorage) {
-          const currentPlayer = players.find(
-            (p) => p._id === userFromStorage._id
-          );
-          console.log(
-            "Player resources at start of expand phase:",
-            currentPlayer
-              ? {
-                  production: currentPlayer.production,
-                  gold: currentPlayer.gold,
-                }
-              : "Player not found"
-          );
-        }
       }
       // If entering conquer phase, reset expansion complete flag
-      else if (newPhase === "conquer") {
+      else if (data.phase === "conquer") {
         console.log(
           "Phase changed to conquer - setting expansionComplete to false"
         );
@@ -239,7 +270,7 @@ export default function GameContainer() {
       if (data.phase) dispatch({ type: "SET_PHASE", payload: data.phase });
 
       // Update cards for the current player
-      if (data.cards && userFromStorage) {
+      if (data.cards) {
         dispatch({
           type: "SET_CARDS",
           payload: data.cards,
@@ -248,7 +279,7 @@ export default function GameContainer() {
         dispatch({
           type: "UPDATE_PLAYER_RESOURCES",
           payload: {
-            id: userFromStorage._id,
+            _id: currentPlayerId,
             production: data.production,
             gold: data.gold || 0,
           },
@@ -259,32 +290,20 @@ export default function GameContainer() {
     socket.on("resourceUpdate", (data) => {
       console.log("Resource update received:", data);
 
-      // Make sure we have the user info
-      const userFromStorage = JSON.parse(localStorage.getItem("user"));
-      if (userFromStorage) {
-        // Update the player's resources in the game state
-        dispatch({
-          type: "UPDATE_PLAYER_RESOURCES",
-          payload: {
-            id: userFromStorage._id,
-            production: data.production,
-            gold: data.gold,
-          },
-        });
+      // Update the player's resources in the game state
+      dispatch({
+        type: "UPDATE_PLAYER_RESOURCES",
+        payload: {
+          _id: currentPlayerId,
+          production: data.production,
+          gold: data.gold,
+        },
+      });
 
-        // Display a message about the resource update
-        setMessage(
-          `Resources updated: ${data.production} production, ${data.gold} gold`
-        );
-
-        // Force logging of the player state after update
-        console.log(
-          "Current player state after resource update:",
-          players.find((p) => p._id === userFromStorage._id)
-        );
-      } else {
-        console.error("No user data in localStorage for resource update");
-      }
+      // Display a message about the resource update
+      setMessage(
+        `Resources updated: ${data.production} production, ${data.gold} gold`
+      );
     });
 
     socket.on("resetCityBuilt", (data) => {
@@ -329,7 +348,6 @@ export default function GameContainer() {
       }
     });
 
-    // Make territory expansion completion more robust
     socket.on("territoryExpansionComplete", (data) => {
       console.log("Territory expansion complete event received:", data);
       setMessage(
@@ -361,7 +379,7 @@ export default function GameContainer() {
       });
 
       // If this is the current player's city
-      if (cityPlayerId === userFromStorage._id) {
+      if (cityPlayerId === currentPlayerId) {
         console.log("City built by current player:", username);
         dispatch({ type: "SET_CITY_BUILT", payload: true });
         setMessage("City built! Territory will expand in the conquer phase.");
@@ -371,34 +389,37 @@ export default function GameContainer() {
     socket.on("buildCityError", (data) => {
       console.error("City build failed:", data);
       dispatch({ type: "SET_CITY_BUILT", payload: false });
+      setMessage(`Failed to build city: ${data.message || "Unknown error"}`);
     });
 
     socket.on("cardPurchaseSuccess", (data) => {
       console.log("Card purchase success:", data);
-      if (userFromStorage) {
-        dispatch({
-          type: "UPDATE_PLAYER_RESOURCES",
-          payload: {
-            id: userFromStorage._id,
-            production: data.production,
-            gold: data.gold,
-            cards: data.currentCards,
-          },
-        });
-      }
+      dispatch({
+        type: "UPDATE_PLAYER_RESOURCES",
+        payload: {
+          _id: currentPlayerId,
+          production: data.production,
+          gold: data.gold,
+          cards: data.currentCards,
+        },
+      });
     });
 
+    // Cleanup socket connection on unmount
     return () => {
-      if (socket) socket.disconnect();
+      if (socket) {
+        socket.disconnect();
+        socketInitializedRef.current = false;
+      }
     };
-  }, [queryLobbyId, dispatch]);
+  }, [currentPlayerId, queryLobbyId, dispatch, loading, ensureUser]);
 
   const handleCityPlacement = (tileInfo) => {
     console.log("City placed at", tileInfo);
     socket.emit("buildCity", {
       lobbyId: queryLobbyId,
       tile: tileInfo,
-      _id: user?._id,
+      _id: currentPlayerId,
     });
   };
 
@@ -408,13 +429,17 @@ export default function GameContainer() {
       lobbyId: queryLobbyId,
       structure: structure,
       tile: tileInfo,
-      _id: user?._id,
+      _id: currentPlayerId,
     });
   };
 
   const handleCardSelected = (card) => {
     console.log("Card selected:", card);
-    socket.emit("buyCard", { lobbyId: queryLobbyId, card });
+    socket.emit("buyCard", {
+      lobbyId: queryLobbyId,
+      card,
+      _id: currentPlayerId,
+    });
   };
 
   const handleCancelPlacement = () => {
@@ -423,11 +448,11 @@ export default function GameContainer() {
 
   const handleReady = () => {
     console.log("Setting player ready status");
-    const userFromStorage = JSON.parse(localStorage.getItem("user"));
+    const playerInfo = players.find((p) => p._id === currentPlayerId) || {};
     socket.emit("playerReady", {
       lobbyId: queryLobbyId,
-      username: userFromStorage?.username,
-      _id: userFromStorage?._id,
+      username: playerInfo.username || user?.username || "Guest",
+      _id: currentPlayerId,
     });
   };
 
@@ -437,6 +462,10 @@ export default function GameContainer() {
     dispatch({ type: "RESET_STATE" });
     router.push("/lobby");
   };
+
+  if (loading || localLoading) {
+    return <LoadingScreen message="Loading game..." />;
+  }
 
   return (
     <div className="relative w-screen h-screen overflow-hidden">
@@ -453,8 +482,37 @@ export default function GameContainer() {
         onStructurePlacement={handleStructurePlacement}
       />
 
-      <div className="absolute top-5 right-1/2 z-10">
-        <ResourceBar resourceValue={currentPlayer?.production || 0} />
+      <div className="absolute top-5 bg-gray-900 rounded right-1/3 z-10 flex flex-row">
+        <ResourceBar
+          resourceValue={currentPlayer?.production || 0}
+          icon={"⚙️"}
+          title="production"
+        />
+        <ResourceBar
+          resourceValue={currentPlayer?.gold || 0}
+          icon={"💰"}
+          title="gold"
+        />
+        <ResourceBar
+          resourceValue={currentPlayer?.iron || 0}
+          icon={"🔗"}
+          title="iron"
+        />
+        <ResourceBar
+          resourceValue={currentPlayer?.wood || 0}
+          icon={"🪵"}
+          title="wood"
+        />
+        <ResourceBar
+          resourceValue={currentPlayer?.stone || 0}
+          icon={"🪨"}
+          title="stone"
+        />
+        <ResourceBar
+          resourceValue={currentPlayer?.horses || 0}
+          icon={"🐎"}
+          title="horses"
+        />
       </div>
       <div className="absolute top-5 left-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
         <h2>Game Room: {queryLobbyId}</h2>

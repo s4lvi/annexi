@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { useGameState } from "./gameState";
 import ConfirmationModal from "./ConfirmationModal";
+import GameCard from "./GameCard";
 
 const baseCityCard = {
   id: "base-city",
@@ -74,49 +75,26 @@ export function ExpandPhaseUI({
         </div>
       )}
 
-      <div className="absolute bottom-0 left-0 w-full h-1/3 bg-black bg-opacity-60 flex flex-col items-center justify-center z-20">
+      <div className="absolute bottom-0 left-0 w-full h-2/5 bg-black bg-opacity-60 flex flex-col items-center z-20 py-2 overflow-hidden">
         {/* If a city has not been built and the player isn't currently placing one */}
         {!cityBuilt && !placingCity && (
-          <div className="w-full h-full overflow-x-auto">
-            <div className="w-full flex flex-row h-full justify-center items-center">
-              <div className="mb-4 p-2 pt-6 pb-6 pl-4 h-full">
-                <div className="flex flex-nowrap overflow-x-auto space-x-4 h-full">
-                  <div
-                    className="flex flex-col justify-end h-full w-64 opacity-90 text-white p-3 rounded-lg cursor-pointer hover:opacity-100 bg-cover bg-center"
+          <div className="w-full overflow-x-auto">
+            <div className="w-full flex flex-row justify-center items-center">
+              <div className="p-2">
+                <div className="flex flex-nowrap space-x-1 overflow-x-auto">
+                  <GameCard
+                    card={baseCityCard}
                     onClick={handleBuildCityClick}
-                    style={{
-                      backgroundImage: `url(/base-city.png)`,
-                      backgroundColor: "#2d3748",
-                    }}
-                    disabled={
+                    isDisabled={
                       currentPlayer?.production < baseCityCard.cost.production
                     }
-                  >
-                    <div className="backdrop-blur-xs bg-black/50 p-2 rounded-lg">
-                      <div className="flex justify-between">
-                        <p className="font-semibold">{baseCityCard.name}</p>
-                        {getOwnedCardCount(baseCityCard.id) > 0 && (
-                          <p className="font-bold bg-white text-black rounded-full w-6 h-6 flex items-center justify-center">
-                            {getOwnedCardCount(baseCityCard.id)}
-                          </p>
-                        )}
-                      </div>
-                      <p className="text-sm">{baseCityCard.effect}</p>
-                      <p className="text-xs">
-                        Cost: {baseCityCard.cost.production} Production
-                      </p>
-                      {currentPlayer?.production <
-                        baseCityCard.cost.production && (
-                        <p className="text-red-400 text-xs mt-2">
-                          Insufficient resources
-                        </p>
-                      )}
-                    </div>
-                  </div>
+                    ownedCount={getOwnedCardCount(baseCityCard.id)}
+                    currentProduction={currentPlayer?.production || 0}
+                  />
                 </div>
               </div>
             </div>
-            <p className="text-gray-400 text-xs mt-2 text-center">
+            <p className="text-gray-400 text-xs mt-4 mb-2 text-center">
               {cityBuilt
                 ? "You have already built a city this turn."
                 : "You can build one city per turn."}
@@ -128,44 +106,27 @@ export function ExpandPhaseUI({
         {cityBuilt &&
           availableCards &&
           Object.entries(availableCards).length > 0 && (
-            <div className="w-full h-full overflow-x-auto">
-              <div className="w-full flex flex-row h-full">
+            <div className="w-full overflow-x-auto">
+              <div className="w-full flex flex-row">
                 {Object.entries(availableCards)
                   .filter(
                     ([group, cards]) =>
                       group !== "citycards" && cards.length > 0
                   )
                   .map(([group, cards]) => (
-                    <div key={group} className="mb-4 p-2 pt-6 pb-6 pl-4 h-full">
-                      <div className="flex flex-nowrap overflow-x-auto space-x-4 h-full">
+                    <div key={group} className="p-2">
+                      <div className="flex flex-nowrap space-x-1 overflow-x-auto">
                         {cards.map((card) => (
-                          <div
+                          <GameCard
                             key={card.id}
-                            className="flex flex-col justify-end h-full w-64 opacity-50 text-white p-3 rounded-lg cursor-pointer hover:opacity-100 bg-cover bg-center"
+                            card={card}
                             onClick={() => handleCardSelection(card)}
-                            style={{ backgroundImage: `url(/${card.id}.png)` }}
-                          >
-                            <div className="backdrop-blur-xs bg-black/50 p-2 rounded-lg">
-                              <div className="flex justify-between">
-                                <p className="font-semibold">{card.name}</p>
-                                {getOwnedCardCount(card.id) > 0 && (
-                                  <p className="font-bold bg-white text-black rounded-full w-6 h-6 flex items-center justify-center">
-                                    {getOwnedCardCount(card.id)}
-                                  </p>
-                                )}
-                              </div>
-                              <p className="text-sm">{card.effect}</p>
-                              <p className="text-xs">
-                                Cost: {card.cost.production} Production
-                              </p>
-                              {currentPlayer?.production <
-                                card.cost.production && (
-                                <p className="text-red-400 text-xs mt-2">
-                                  Insufficient resources
-                                </p>
-                              )}
-                            </div>
-                          </div>
+                            isDisabled={
+                              currentPlayer?.production < card.cost.production
+                            }
+                            ownedCount={getOwnedCardCount(card.id)}
+                            currentProduction={currentPlayer?.production || 0}
+                          />
                         ))}
                       </div>
                     </div>

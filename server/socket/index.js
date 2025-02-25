@@ -322,126 +322,150 @@ function startTerritoryExpansion(lobbyId, io) {
     `Found ${lobby.pendingCities.length} pending cities for expansion`
   );
 
-  // Initialize an object to keep track of expanded territories by radius
-  lobby.expandedTerritories = {};
+  // Track the expansion frontier for each city separately
+  lobby.cityExpansionFrontiers = {};
 
-  // First, add all city tiles to the initial territories
-  lobby.pendingCities.forEach((city) => {
+  // Initialize city frontiers with just the city tiles
+  lobby.pendingCities.forEach((city, cityIndex) => {
     const { x, y, playerId } = city;
+    const cityId = `city_${cityIndex}_${playerId}`;
+
+    // Add the city tile to territory (if not already owned)
     addToPlayerTerritory(lobby, playerId, x, y);
 
-    if (!lobby.expandedTerritories[playerId]) {
-      lobby.expandedTerritories[playerId] = new Set();
-    }
-    lobby.expandedTerritories[playerId].add(`${x},${y}`);
+    // Initialize this city's expansion frontier
+    lobby.cityExpansionFrontiers[cityId] = new Set([`${x},${y}`]);
   });
 
-  // Create expansion queue by rings
-  processExpansionByRings(lobby, io, lobbyId);
+  // Setup the ring-by-ring expansion
+  lobby.maxRings = 6; // Default expansion radius
+  lobby.currentRing = 1;
+
+  // Process first ring immediately
+  processNextExpansionRing(lobby, io, lobbyId);
 }
 
-function processExpansionByRings(lobby, io, lobbyId) {
+function processNextExpansionRing(lobby, io, lobbyId) {
+  const currentRing = lobby.currentRing;
+  console.log(`Processing ring ${currentRing} for territory expansion`);
+
+  if (currentRing > lobby.maxRings) {
+    // Expansion complete
+    console.log("Territory expansion complete - all rings processed");
+    io.to(`lobby-${lobbyId}`).emit("territoryExpansionComplete", {
+      message: "Territory expansion complete",
+    });
+    lobby.pendingCities = [];
+    return;
+  }
+
   const mapData = lobby.mapData;
-  const maxRings = 6; // Default expansion radius
 
-  // Process each ring one at a time
-  for (let currentRing = 1; currentRing <= maxRings; currentRing++) {
-    console.log(`Processing ring ${currentRing} for territory expansion`);
+  // Store candidates for this ring
+  const ringCandidates = [];
 
-    // Store candidates for this ring
-    const ringCandidates = [];
+  // Process each city's expansion separately
+  Object.keys(lobby.cityExpansionFrontiers).forEach((cityId) => {
+    const currentFrontier = Array.from(lobby.cityExpansionFrontiers[cityId]);
+    const cityPlayerId = cityId.split("_")[2]; // Extract player ID from cityId
 
-    // Check each player's current territories for expansion
-    Object.keys(lobby.playerTerritories || {}).forEach((playerId) => {
-      // Get the current expansion frontier (territories from previous ring)
-      const currentTerritories = Array.from(
-        lobby.expandedTerritories[playerId] || new Set()
-      );
+    // Create a new frontier for the next ring
+    const nextFrontier = new Set();
 
-      if (!currentTerritories.length) return;
+    // For each tile in current frontier, find adjacent tiles
+    currentFrontier.forEach((coordStr) => {
+      const [x, y] = coordStr.split(",").map(Number);
 
-      // For each current territory, find valid adjacent tiles
-      currentTerritories.forEach((coordStr) => {
-        const [x, y] = coordStr.split(",").map(Number);
+      // Check the 6 adjacent hexes
+      const adjacentOffsets = getHexAdjacencyOffsets(x);
 
-        // Check the 6 adjacent hexes
-        const adjacentOffsets = getHexAdjacencyOffsets(x);
+      adjacentOffsets.forEach(([dx, dy]) => {
+        const newX = x + dx;
+        const newY = y + dy;
 
-        adjacentOffsets.forEach(([dx, dy]) => {
-          const newX = x + dx;
-          const newY = y + dy;
+        // Skip if out of bounds
+        if (
+          newX < 0 ||
+          newY < 0 ||
+          newX >= mapData[0]?.length ||
+          newY >= mapData.length
+        )
+          return;
 
-          // Skip if out of bounds
-          if (
-            newX < 0 ||
-            newY < 0 ||
-            newX >= mapData[0]?.length ||
-            newY >= mapData.length
-          )
-            return;
+        // Skip if water or mountain
+        const tileType = mapData[newY][newX]?.type;
+        if (tileType === "water" || tileType === "mountain") return;
 
-          // Skip if water or mountain
-          const tileType = mapData[newY][newX]?.type;
-          if (tileType === "water" || tileType === "mountain") return;
+        const tileKey = `${newX},${newY}`;
 
-          // Skip if already owned
-          const tileKey = `${newX},${newY}`;
-          if (lobby.tileOwnership[tileKey]) return;
+        // Check if tile is owned by another player (not this player)
+        if (
+          lobby.tileOwnership[tileKey] &&
+          lobby.tileOwnership[tileKey] !== cityPlayerId
+        ) {
+          return; // Skip if owned by someone else
+        }
 
-          // Add to candidates for this ring
+        // Add to the next frontier for this city
+        nextFrontier.add(tileKey);
+
+        // Add to candidates for claiming if not already owned by this player
+        if (
+          !lobby.tileOwnership[tileKey] ||
+          lobby.tileOwnership[tileKey] !== cityPlayerId
+        ) {
           ringCandidates.push({
             x: newX,
             y: newY,
-            playerId,
+            playerId: cityPlayerId,
             ring: currentRing,
           });
-        });
-      });
-    });
-
-    // Shuffle the candidates to randomize expansion
-    shuffleArray(ringCandidates);
-
-    // Process this ring's candidates
-    const claims = [];
-    ringCandidates.forEach((candidate) => {
-      const { x, y, playerId } = candidate;
-      const claimed = addToPlayerTerritory(lobby, playerId, x, y);
-
-      if (claimed) {
-        claims.push({ x, y, playerId });
-
-        // Add to expanded territories for next ring
-        if (!lobby.expandedTerritories[playerId]) {
-          lobby.expandedTerritories[playerId] = new Set();
         }
-        lobby.expandedTerritories[playerId].add(`${x},${y}`);
-      }
+      });
     });
 
-    // Send updates to clients for this ring
-    if (claims.length > 0) {
-      console.log(
-        `Sending batch of ${claims.length} territory updates for ring ${currentRing}`
-      );
-      io.to(`lobby-${lobbyId}`).emit("territoryUpdate", {
-        claims,
-        currentRing,
-        remainingInRing: 0,
-        remainingClaims: maxRings - currentRing,
-      });
+    // Update the frontier for next ring
+    lobby.cityExpansionFrontiers[cityId] = nextFrontier;
+  });
 
-      // Add a delay between rings for visual effect
-      setTimeout(() => {}, 300);
+  console.log("Found candidates for ring", currentRing, ringCandidates.length);
+
+  // Shuffle the candidates to randomize expansion
+  shuffleArray(ringCandidates);
+
+  // Process this ring's candidates
+  const claims = [];
+  ringCandidates.forEach((candidate) => {
+    const { x, y, playerId } = candidate;
+    const claimed = addToPlayerTerritory(lobby, playerId, x, y);
+    if (claimed) {
+      claims.push({ x, y, playerId });
     }
+  });
+
+  console.log(`Ring ${currentRing} processed with ${claims.length} claims`);
+
+  // Send updates to clients for this ring
+  if (claims.length > 0) {
+    console.log(
+      `Sending batch of ${claims.length} territory updates for ring ${currentRing}`
+    );
+    console.log("Sending claims to lobby:", lobbyId);
+    io.to(`lobby-${lobbyId}`).emit("territoryUpdate", {
+      claims,
+      currentRing,
+      remainingInRing: 0,
+      remainingClaims: lobby.maxRings - currentRing,
+    });
   }
 
-  // Expansion complete
-  console.log("Territory expansion complete");
-  io.to(`lobby-${lobbyId}`).emit("territoryExpansionComplete", {
-    message: "Territory expansion complete",
-  });
-  lobby.pendingCities = [];
+  // Increment ring and process next ring after a delay
+  lobby.currentRing++;
+
+  // Process the next ring after a delay for visual effect
+  setTimeout(() => {
+    processNextExpansionRing(lobby, io, lobbyId);
+  }, 800); // Increased delay to make the animation more visible
 }
 
 // Helper function to get adjacent hex coordinates
@@ -468,93 +492,41 @@ function getHexAdjacencyOffsets(x) {
   }
 }
 
-function processTerritoryExpansion(lobbyId, io) {
-  const lobby = lobbies[lobbyId];
-  if (!lobby) {
-    console.error(
-      `No lobby found with ID ${lobbyId} in processTerritoryExpansion`
-    );
-    return;
-  }
-  if (!lobby.expansionQueue || lobby.expansionQueue.length === 0) {
-    console.log("Territory expansion complete, no more tiles to process");
-    io.to(`lobby-${lobbyId}`).emit("territoryExpansionComplete", {
-      message: "Territory expansion complete",
-    });
-    return;
-  }
-  const currentRing = lobby.expansionQueue[0].distanceRing;
-  if (currentRing > lobby.currentExpansionRing) {
-    lobby.currentExpansionRing = currentRing;
-    console.log(`Moving to expansion ring ${currentRing}`);
-    setTimeout(() => processTerritoryExpansion(lobbyId, io), 200);
-    return;
-  }
-  const batchSize = 5;
-  const claims = [];
-  let processedCount = 0;
-  while (
-    processedCount < batchSize &&
-    lobby.expansionQueue.length > 0 &&
-    lobby.expansionQueue[0].distanceRing === currentRing
-  ) {
-    const claim = lobby.expansionQueue.shift();
-    const { x, y, playerId } = claim;
-    const claimed = addToPlayerTerritory(lobby, playerId, x, y);
-    if (claimed) {
-      claims.push({ x, y, playerId });
-    }
-    processedCount++;
-  }
-  const remainingInRing = lobby.expansionQueue.filter(
-    (t) => t.distanceRing === currentRing
-  ).length;
-  const totalRemaining = lobby.expansionQueue.length;
-  if (claims.length > 0) {
-    console.log(
-      `Sending batch of ${claims.length} territory updates to clients (Ring ${currentRing}, ${remainingInRing} left, ${totalRemaining} total)`
-    );
-    io.to(`lobby-${lobbyId}`).emit("territoryUpdate", {
-      claims,
-      currentRing,
-      remainingInRing,
-      remainingClaims: totalRemaining,
-    });
-  }
-  if (totalRemaining > 0) {
-    setTimeout(() => processTerritoryExpansion(lobbyId, io), 100);
-  } else {
-    console.log("No more territory to process, expansion complete");
-    io.to(`lobby-${lobbyId}`).emit("territoryExpansionComplete", {
-      message: "Territory expansion complete",
-    });
-    lobby.pendingCities = [];
-  }
-}
-
 function addToPlayerTerritory(lobby, playerId, x, y) {
   lobby.playerTerritories = lobby.playerTerritories || {};
   lobby.tileOwnership = lobby.tileOwnership || {};
   const mapData = lobby.mapData;
+
   if (mapData) {
     if (x < 0 || y < 0 || x >= mapData[0]?.length || y >= mapData.length)
       return false;
     const tileType = mapData[y][x]?.type;
     if (tileType === "water" || tileType === "mountain") return false;
   }
+
   if (!lobby.playerTerritories[playerId]) {
     lobby.playerTerritories[playerId] = [];
   }
+
   const tileKey = `${x},${y}`;
+
+  // If tile is already owned by another player, don't claim it
   if (
     lobby.tileOwnership[tileKey] &&
     lobby.tileOwnership[tileKey] !== playerId
   ) {
     return false;
   }
+
+  // If this player already owns the tile, no need to claim again
+  if (lobby.tileOwnership[tileKey] === playerId) {
+    return false; // Not a new claim
+  }
+
+  // Claim the tile for this player
   lobby.tileOwnership[tileKey] = playerId;
   lobby.playerTerritories[playerId].push({ x, y });
-  return true;
+  return true; // Successfully claimed
 }
 
 function shuffleArray(array) {
@@ -792,12 +764,15 @@ module.exports = function (io) {
     });
 
     socket.on("buyCard", (data) => {
-      const { lobbyId, card } = data;
+      const { lobbyId, card, _id } = data;
+      console.log("Received buyCard event with data:", data);
       const lobby = lobbies[lobbyId];
       if (!lobby) return;
-      const player = lobby.players.find((p) => p.socketId === socket.id);
+      const player = lobby.players.find((p) => p._id === _id);
+      console.log("Player found:", player);
       if (!player) return;
       const cardDef = cardData.find((c) => c.id === card.id);
+      console.log("Card definition found:", cardDef);
       if (!cardDef) {
         socket.emit("cardPurchaseError", { message: "Card not found." });
         return;
@@ -809,6 +784,7 @@ module.exports = function (io) {
         });
         return;
       }
+      console.log("Player has enough production. Proceeding with purchase.");
       player.production -= cost;
       if (!player.cards) {
         player.cards = {
@@ -833,6 +809,7 @@ module.exports = function (io) {
         player.cards[category] = [];
       }
       player.cards[category].push(cardDef);
+      console.log("Card added to player's collection:", player.cards);
       socket.emit("cardPurchaseSuccess", {
         card: cardDef,
         message: `${cardDef.name} purchased successfully.`,

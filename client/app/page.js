@@ -1,42 +1,30 @@
-// app/page.js
 "use client";
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import Image from "next/image";
-
-const generateHexId = () => {
-  let hexString = "";
-  for (let i = 0; i < 24; i++) {
-    // Generate a random hex digit (0-f)
-    const hexDigit = Math.floor(Math.random() * 16).toString(16);
-    hexString += hexDigit;
-  }
-  return hexString;
-};
+import { useAuth } from "@/components/AuthContext";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export default function LandingPage() {
   const router = useRouter();
-  const user =
-    typeof window !== "undefined"
-      ? JSON.parse(localStorage.getItem("user"))
-      : null;
+  const { user, loading, createGuestAccount } = useAuth();
+
   useEffect(() => {
-    if (user) {
+    if (!loading && user) {
       router.push("/lobby");
     }
-  }, [user]);
+  }, [user, loading, router]);
+
   const playAsGuest = () => {
-    // Generate a random guest username
-    const guestId = generateHexId();
-    const guestUser = {
-      username: `Guest_${guestId.substring(0, 4)}`, // Use first 8 chars for readable username
-      _id: guestId, // Full 24-character hex string for MongoDB ObjectId
-      isGuest: true,
-    };
-    localStorage.setItem("user", JSON.stringify(guestUser));
+    createGuestAccount();
     router.push("/lobby");
   };
+
+  if (loading) {
+    return <LoadingScreen message="Preparing your adventure..." />;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-neutral-900 to-neutral-800 flex flex-col items-center justify-center p-4">
       <div className="text-center mb-12">

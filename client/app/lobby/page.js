@@ -1,10 +1,11 @@
-// app/lobby/page.js
 "use client";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import { RefreshCw, Users, UserPlus, PlayCircle } from "lucide-react";
+import { useAuth } from "@/components/AuthContext";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export default function LobbyPage() {
   const [lobbies, setLobbies] = useState([]);
@@ -12,6 +13,7 @@ export default function LobbyPage() {
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const { user, loading, ensureUser } = useAuth();
 
   const fetchLobbies = async () => {
     setIsLoading(true);
@@ -30,34 +32,40 @@ export default function LobbyPage() {
   };
 
   useEffect(() => {
+    if (loading) return;
+
+    if (!user) {
+      // Redirect to login if no user is found
+      router.push("/");
+      return;
+    }
+
     fetchLobbies();
     // Set up auto-refresh interval
     const interval = setInterval(fetchLobbies, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loading, user, router]);
 
   const handleCreateLobby = async (e) => {
     e.preventDefault();
-    const user = localStorage.getItem("user")
-      ? JSON.parse(localStorage.getItem("user"))
-      : null;
-    if (!user) {
-      setMessage("User not logged in");
-      return;
-    }
+
+    // Ensure we have a user, create guest if needed
+    const currentUser = ensureUser();
+
     try {
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}api/lobby/create`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ hostUserId: user._id, lobbyName }),
+          body: JSON.stringify({ hostUserId: currentUser._id, lobbyName }),
         }
       );
       const data = await res.json();
       if (res.ok) {
         setMessage("Lobby created successfully");
         router.push(`/lobby/${data.lobby._id}`);
+      } else {
         setMessage(data.message);
       }
     } catch (err) {
@@ -67,8 +75,14 @@ export default function LobbyPage() {
   };
 
   const joinLobby = (lobbyId) => {
+    // Ensure we have a user before joining
+    ensureUser();
     router.push(`/lobby/${lobbyId}`);
   };
+
+  if (loading) {
+    return <LoadingScreen message="Loading lobbies..." />;
+  }
 
   return (
     <div className="min-h-screen bg-neutral-900">

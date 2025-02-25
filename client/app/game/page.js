@@ -117,6 +117,7 @@ export default function GameContainer() {
 
       // Update cards for the current player
       if (data.cards && userFromStorage) {
+        // Make sure to use the correct property name for cards
         dispatch({
           type: "UPDATE_PLAYER_RESOURCES",
           payload: {
@@ -139,6 +140,40 @@ export default function GameContainer() {
             gold: data.gold,
           },
         });
+      }
+    });
+
+    socket.on("territoryUpdate", (data) => {
+      console.log("Territory update received:", data);
+      const { claims, remainingClaims } = data;
+
+      // Update territories for each claim
+      claims.forEach((claim) => {
+        dispatch({
+          type: "ADD_TERRITORY",
+          payload: {
+            playerId: claim.playerId,
+            territory: { x: claim.x, y: claim.y },
+          },
+        });
+      });
+
+      // Optionally show a progress indicator
+      if (remainingClaims > 0) {
+        setMessage(
+          `Territory expansion in progress: ${remainingClaims} tiles remaining`
+        );
+      }
+    });
+
+    socket.on("territoryExpansionComplete", (data) => {
+      console.log("Territory expansion complete:", data);
+      setMessage(data.message);
+
+      // After expansion completes, you might want to update game state
+      // For example, update the phase or show card purchase UI
+      if (phase === "expand" && !cityBuilt) {
+        dispatch({ type: "SET_CITY_BUILT", payload: true });
       }
     });
 

@@ -66,7 +66,12 @@ const PhaseUI = forwardRef(
 
     // Debug log to check current player
     console.log("PhaseUI currentPlayer:", currentPlayer);
-
+    useEffect(() => {
+      console.log("Current player in PhaseUI:", currentPlayer);
+      if (currentPlayer && currentPlayer.cards) {
+        console.log("Player cards:", currentPlayer.cards);
+      }
+    }, [currentPlayer]);
     // Helper to render card based on card data structure
     const renderCard = (card, index, groupName = "") => {
       if (!card || !currentPlayer) return null;

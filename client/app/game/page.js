@@ -259,13 +259,6 @@ export default function GameContainer() {
     socket.on("resourceUpdate", (data) => {
       console.log("Resource update received:", data);
 
-      setProduction(data.production);
-      // Force console logging of the received data
-      console.table({
-        production: data.production,
-        gold: data.gold,
-      });
-
       // Make sure we have the user info
       const userFromStorage = JSON.parse(localStorage.getItem("user"));
       if (userFromStorage) {
@@ -461,7 +454,7 @@ export default function GameContainer() {
       />
 
       <div className="absolute top-5 right-1/2 z-10">
-        <ResourceBar resourceValue={production} />
+        <ResourceBar resourceValue={currentPlayer?.production || 0} />
       </div>
       <div className="absolute top-5 left-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
         <h2>Game Room: {queryLobbyId}</h2>

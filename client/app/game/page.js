@@ -90,6 +90,40 @@ export default function GameContainer() {
       _id: userFromStorage?._id,
     });
 
+    socket.on("gameStateUpdate", (data) => {
+      console.log("Game state update received:", data);
+
+      // Update phase if provided
+      if (data.phase) {
+        dispatch({ type: "SET_PHASE", payload: data.phase });
+      }
+
+      // Update players if provided
+      if (data.players) {
+        dispatch({ type: "SET_PLAYERS", payload: data.players });
+      }
+
+      // If this is the expand phase, ensure cityBuilt is reset
+      if (data.phase === "expand") {
+        console.log(
+          "Game state update indicates expand phase - resetting cityBuilt flag"
+        );
+        dispatch({ type: "SET_CITY_BUILT", payload: false });
+      }
+
+      // Show message if provided
+      if (data.message) {
+        setMessage(data.message);
+      }
+
+      // Force a console.log of the current game state for debugging
+      const userFromStorage = JSON.parse(localStorage.getItem("user"));
+      const currentPlayer = data.players?.find(
+        (p) => p._id === userFromStorage?._id
+      );
+      console.log("Current player state:", currentPlayer);
+    });
+
     socket.on("lobbyUpdate", (data) => {
       // The backend now sends players with the expected format
       dispatch({ type: "SET_PLAYERS", payload: data.players });
@@ -98,8 +132,47 @@ export default function GameContainer() {
 
     socket.on("phaseChange", (data) => {
       console.log("Phase change received:", data);
-      dispatch({ type: "SET_PHASE", payload: data.phase });
+      const previousPhase = state.phase;
+      const newPhase = data.phase;
+
+      // Update phase in state
+      dispatch({ type: "SET_PHASE", payload: newPhase });
       setTimer(data.phaseDuration);
+
+      // Show message if provided
+      if (data.message) {
+        setMessage(data.message);
+      }
+
+      // If we're entering the expand phase, reset cityBuilt
+      if (newPhase === "expand") {
+        console.log("Phase changed to expand - resetting cityBuilt flag");
+        dispatch({ type: "SET_CITY_BUILT", payload: false });
+
+        // Force a check for the user's current resources
+        const userFromStorage = JSON.parse(localStorage.getItem("user"));
+        if (userFromStorage) {
+          const currentPlayer = players.find(
+            (p) => p.id === userFromStorage._id
+          );
+          console.log(
+            "Player resources at start of expand phase:",
+            currentPlayer
+              ? {
+                  production: currentPlayer.production,
+                  gold: currentPlayer.gold,
+                }
+              : "Player not found"
+          );
+        }
+      }
+      // If entering conquer phase, reset expansion complete flag
+      else if (newPhase === "conquer") {
+        console.log(
+          "Phase changed to conquer - setting expansionComplete to false"
+        );
+        dispatch({ type: "SET_EXPANSION_COMPLETE", payload: false });
+      }
     });
 
     socket.on("gameStarted", (data) => {
@@ -131,7 +204,17 @@ export default function GameContainer() {
 
     socket.on("resourceUpdate", (data) => {
       console.log("Resource update received:", data);
+
+      // Force console logging of the received data
+      console.table({
+        production: data.production,
+        gold: data.gold,
+      });
+
+      // Make sure we have the user info
+      const userFromStorage = JSON.parse(localStorage.getItem("user"));
       if (userFromStorage) {
+        // Update the player's resources in the game state
         dispatch({
           type: "UPDATE_PLAYER_RESOURCES",
           payload: {
@@ -140,51 +223,84 @@ export default function GameContainer() {
             gold: data.gold,
           },
         });
+
+        // Display a message about the resource update
+        setMessage(
+          `Resources updated: ${data.production} production, ${data.gold} gold`
+        );
+
+        // Force logging of the player state after update
+        console.log(
+          "Current player state after resource update:",
+          players.find((p) => p.id === userFromStorage._id)
+        );
+      } else {
+        console.error("No user data in localStorage for resource update");
+      }
+    });
+
+    socket.on("resetCityBuilt", (data) => {
+      console.log("City built flag reset received:", data);
+
+      // Reset the cityBuilt flag to allow building a new city
+      dispatch({ type: "SET_CITY_BUILT", payload: false });
+
+      // Force a log of the cityBuilt state change
+      console.log("cityBuilt flag reset to false");
+
+      // Display the message
+      if (data.message) {
+        setMessage(data.message);
       }
     });
 
     socket.on("territoryUpdate", (data) => {
       console.log("Territory update received:", data);
-      const { claims, remainingClaims } = data;
+      const { claims, currentRing, remainingInRing, remainingClaims } = data;
 
-      // Update territories for each claim
-      claims.forEach((claim) => {
-        dispatch({
-          type: "ADD_TERRITORY",
-          payload: {
-            playerId: claim.playerId,
-            territory: { x: claim.x, y: claim.y },
-          },
-        });
+      if (!claims || claims.length === 0) {
+        console.warn("Received empty territory update");
+        return;
+      }
+
+      // Use bulk update for better performance
+      dispatch({
+        type: "BULK_ADD_TERRITORY",
+        payload: { claims },
       });
 
-      // Optionally show a progress indicator
+      // Show progress with ring information
       if (remainingClaims > 0) {
-        setMessage(
-          `Territory expansion in progress: ${remainingClaims} tiles remaining`
-        );
+        let message = `Territory expansion in progress: ${remainingClaims} tiles remaining`;
+
+        if (currentRing !== undefined && remainingInRing !== undefined) {
+          message = `Expanding ring ${currentRing} (${remainingInRing} tiles left in ring, ${remainingClaims} total)`;
+        }
+
+        setMessage(message);
       }
     });
 
+    // Make territory expansion completion more robust
     socket.on("territoryExpansionComplete", (data) => {
-      console.log("Territory expansion complete:", data);
-      setMessage(data.message);
+      console.log("Territory expansion complete event received:", data);
+      setMessage(
+        data.message ||
+          "Territory expansion complete - Place defensive structures"
+      );
 
-      // After expansion completes, you might want to update game state
-      // For example, update the phase or show card purchase UI
-      if (phase === "expand" && !cityBuilt) {
-        dispatch({ type: "SET_CITY_BUILT", payload: true });
-      }
+      // Update UI to show territory expansion is complete
+      dispatch({ type: "SET_EXPANSION_COMPLETE", payload: true });
     });
 
     socket.on("buildCitySuccess", (data) => {
       console.log("City build succeeded:", data);
       const { username, type, level, x, y, playerId } = data;
-      console.log("City built by player:", data);
+
       // Use playerId directly from the backend response
       const cityPlayerId = playerId;
 
-      // Add city to state (regardless of who built it)
+      // Add city to state
       dispatch({
         type: "ADD_CITY",
         payload: {
@@ -196,23 +312,11 @@ export default function GameContainer() {
         },
       });
 
-      // Add territory around the city
-      //   const territoryRadius = 7;
-      //   for (let dx = -territoryRadius; dx <= territoryRadius; dx++) {
-      //     for (let dy = -territoryRadius; dy <= territoryRadius; dy++) {
-      //       dispatch({
-      //         type: "ADD_TERRITORY",
-      //         payload: {
-      //           playerId: cityPlayerId,
-      //           territory: { x: x + dx, y: y + dy },
-      //         },
-      //       });
-      //     }
-      //   }
-
+      // If this is the current player's city
       if (cityPlayerId === userFromStorage._id) {
         console.log("City built by current player:", username);
         dispatch({ type: "SET_CITY_BUILT", payload: true });
+        setMessage("City built! Territory will expand in the conquer phase.");
       }
     });
 
@@ -266,6 +370,16 @@ export default function GameContainer() {
     });
   };
 
+  const handleStructurePlacement = (tileInfo, structure) => {
+    console.log("Structure placed at", tileInfo);
+    socket.emit("buildStructure", {
+      lobbyId: queryLobbyId,
+      structure: structure,
+      tile: tileInfo,
+      _id: user?._id,
+    });
+  };
+
   const handleCardSelected = (card) => {
     console.log("Card selected:", card);
     socket.emit("buyCard", { lobbyId: queryLobbyId, card });
@@ -276,6 +390,7 @@ export default function GameContainer() {
   };
 
   const handleReady = () => {
+    console.log("Setting player ready status");
     const userFromStorage = JSON.parse(localStorage.getItem("user"));
     socket.emit("playerReady", {
       lobbyId: queryLobbyId,
@@ -303,6 +418,7 @@ export default function GameContainer() {
         onCityPlacement={handleCityPlacement}
         onCardSelected={handleCardSelected}
         onCancelPlacement={handleCancelPlacement}
+        onStructurePlacement={handleStructurePlacement}
       />
       <div className="absolute top-5 left-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
         <h2>Game Room: {queryLobbyId}</h2>

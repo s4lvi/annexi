@@ -201,7 +201,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
         Object.keys(territories).forEach((playerId, playerIndex) => {
           const color =
             scene.playerColors[playerIndex % scene.playerColors.length];
-          const alpha = 0.4; // Semi-transparent
+          const alpha = 0.6; // Semi-transparent
 
           territories[playerId].forEach((territory) => {
             if (

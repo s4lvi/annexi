@@ -1,3 +1,4 @@
+// server/socket/index.js
 const lobbies = {};
 
 const baseDeckDefinition = [
@@ -187,6 +188,14 @@ function updatePlayerResources(player, socket) {
   socket.emit("resourceUpdate", resourceUpdate);
 }
 
+function updatePlayerCards(player, socket) {
+  console.log("Updating player cards:", player.username);
+  const cardsUpdate = {
+    inventory: player.inventory,
+  };
+  socket.emit("cardsUpdate", cardsUpdate);
+}
+
 function validateCityPlacement(lobby, tile, playerId) {
   // Ensure we have a set for occupied tiles
   lobby.occupiedTiles = lobby.occupiedTiles || new Set();
@@ -257,13 +266,10 @@ function collectResources(lobby, io) {
   });
 }
 
-// Centralized phase-advancement logic.
-// Uses a flag to ensure only one advance is processed.
 function advancePhase(lobbyId, io) {
   const lobby = lobbies[lobbyId];
   if (!lobby) return;
 
-  // If a phase transition is already in progress, do nothing.
   if (lobby.phaseTransitionInProgress) {
     console.log(`Phase transition already in progress in lobby ${lobbyId}`);
     return;
@@ -272,6 +278,7 @@ function advancePhase(lobbyId, io) {
 
   switch (lobby.phase) {
     case PHASES.EXPAND:
+      // Transition from expansion to conquer.
       lobby.phase = PHASES.CONQUER;
       io.to(`lobby-${lobbyId}`).emit("phaseChange", {
         phase: PHASES.CONQUER,
@@ -281,6 +288,7 @@ function advancePhase(lobbyId, io) {
       startTerritoryExpansion(lobbyId, io);
       break;
     case PHASES.CONQUER:
+      // Transition from conquer to resolution.
       lobby.phase = PHASES.RESOLUTION;
       io.to(`lobby-${lobbyId}`).emit("phaseChange", {
         phase: PHASES.RESOLUTION,
@@ -288,7 +296,7 @@ function advancePhase(lobbyId, io) {
         waiting: true,
         waitDuration: 5000,
       });
-      // Delay for battle resolution.
+      // Delay for battle resolution then start a new turn.
       setTimeout(() => {
         lobby.phase = PHASES.EXPAND;
         lobby.turnStarted = false;
@@ -303,9 +311,11 @@ function advancePhase(lobbyId, io) {
           waiting: false,
         });
         lobby.pendingCities = [];
+        // Reset readiness flags for both phases at the start of a new turn.
         lobby.players = lobby.players.map((player) => ({
           ...player,
-          ready: false,
+          readyExpand: false,
+          readyConquer: false,
         }));
         io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
           players: lobby.players,
@@ -314,25 +324,31 @@ function advancePhase(lobbyId, io) {
       }, 5000);
       break;
     case PHASES.RESOLUTION:
-      // This branch is handled in the CONQUER delay.
+      // This branch is handled in the conquer delay.
       break;
     default:
       break;
   }
 
-  // Reset all players' ready status for non-waiting phases.
-  if (lobby.phase !== PHASES.RESOLUTION) {
+  // Reset the ready flag for the phase that was just completed.
+  if (lobby.phase === PHASES.CONQUER) {
+    // We just transitioned from expand to conquer; clear readyExpand flags.
     lobby.players = lobby.players.map((player) => ({
       ...player,
-      ready: false,
+      readyExpand: false,
     }));
-    io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
-      players: lobby.players,
-      message: `Phase advanced to ${lobby.phase}.`,
-    });
+  } else if (lobby.phase === PHASES.RESOLUTION) {
+    // We just transitioned from conquer to resolution; clear readyConquer flags.
+    lobby.players = lobby.players.map((player) => ({
+      ...player,
+      readyConquer: false,
+    }));
   }
+  io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
+    players: lobby.players,
+    message: `Phase advanced to ${lobby.phase}.`,
+  });
 
-  // Phase transition finished.
   lobby.phaseTransitionInProgress = false;
 }
 
@@ -782,50 +798,117 @@ module.exports = function (io) {
     });
 
     socket.on("playerReady", (data) => {
-      const { lobbyId, username, _id } = data;
+      const { lobbyId, username, _id, phase } = data;
       if (!lobbies[lobbyId]) return;
 
-      console.log(`Player ${username} (${_id}) is ready in lobby ${lobbyId}`);
+      console.log(
+        `Player ${username} (${_id}) is ready for ${phase} phase in lobby ${lobbyId}`
+      );
 
+      // Update the readiness flag depending on which phase the ready event is for.
       lobbies[lobbyId].players = lobbies[lobbyId].players.map((player) => {
         if (player._id === _id) {
-          return { ...player, ready: true };
+          if (phase === "expand") {
+            return { ...player, readyExpand: true };
+          } else if (phase === "conquer") {
+            return { ...player, readyConquer: true };
+          }
         }
         return player;
       });
 
       io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
         players: lobbies[lobbyId].players,
-        message: `${username} is ready.`,
+        message: `${username} is ready for ${phase} phase.`,
       });
 
-      const allReady =
-        lobbies[lobbyId].players.length > 0 &&
-        lobbies[lobbyId].players.every((player) => player.ready);
+      // Check if all players are ready for this phase.
+      let allReady = false;
+      if (phase === "expand") {
+        allReady =
+          lobbies[lobbyId].players.length > 0 &&
+          lobbies[lobbyId].players.every((player) => player.readyExpand);
+      } else if (phase === "conquer") {
+        allReady =
+          lobbies[lobbyId].players.length > 0 &&
+          lobbies[lobbyId].players.every((player) => player.readyConquer);
+      }
 
       if (allReady) {
         console.log(
-          `All players in lobby ${lobbyId} are ready. Advancing phase.`
+          `All players in lobby ${lobbyId} are ready for ${phase} phase. Advancing phase.`
         );
-
-        // Immediately set phaseTransitionInProgress to false if it's stuck
+        // Use a slight delay to allow for any final UI updates.
         setTimeout(() => {
           if (lobbies[lobbyId] && lobbies[lobbyId].phaseTransitionInProgress) {
             console.log(`Forcing phase transition reset for lobby ${lobbyId}`);
             lobbies[lobbyId].phaseTransitionInProgress = false;
           }
-
-          // Check the conditions again and advance if needed
           if (!lobbies[lobbyId].phaseTransitionInProgress) {
             advancePhase(lobbyId, io);
           }
         }, 500);
-
-        // Try to advance immediately
-        if (!lobbies[lobbyId].phaseTransitionInProgress) {
-          advancePhase(lobbyId, io);
-        }
       }
+    });
+
+    socket.on("buildStructure", (data) => {
+      const { lobbyId, structure, tile, _id } = data;
+      const lobby = lobbies[lobbyId];
+      if (!lobby) return;
+
+      const player = lobby.players.find((p) => p._id === _id);
+      if (!player) return;
+
+      // Validate tile: similar to validateCityPlacement
+      if (!validateCityPlacement(lobby, tile, _id)) {
+        socket.emit("buildStructureError", {
+          message:
+            "Invalid tile: must be within your territory and unoccupied.",
+        });
+        return;
+      }
+
+      // No limit on structures: verify the player has the card in inventory
+      const cardIndex = player.inventory.findIndex(
+        (card) => card.id === structure.id
+      );
+      if (cardIndex === -1) {
+        socket.emit("buildStructureError", {
+          message: "Defensive structure card not in inventory.",
+        });
+        return;
+      }
+
+      // Deduct the card: remove it from inventory
+      const [placedCard] = player.inventory.splice(cardIndex, 1);
+
+      // Shuffle the card back into the deck: increment its count in the deck
+      if (player.deck[structure.id] !== undefined) {
+        player.deck[structure.id]++;
+      }
+
+      // Mark the tile as occupied (reusing your mechanism)
+      lobby.occupiedTiles = lobby.occupiedTiles || new Set();
+      lobby.occupiedTiles.add(JSON.stringify(tile));
+
+      // Add the structure to the game state (you might have a structures array in the lobby)
+      if (!lobby.structures) {
+        lobby.structures = [];
+      }
+      lobby.structures.push({ ...tile, playerId: _id, structure: placedCard });
+
+      // Emit a success event with updated state to all clients
+      io.to(`lobby-${lobbyId}`).emit("buildStructureSuccess", {
+        structure: placedCard,
+        tile,
+        playerId: _id,
+        message: `${player.username} placed a ${placedCard.name}.`,
+      });
+
+      // Also, update resources or any other player info if needed.
+
+      updatePlayerResources(player, socket);
+      updatePlayerCards(player, socket); // Assuming you have a function to update player cards
     });
 
     socket.on("buildCity", (data) => {

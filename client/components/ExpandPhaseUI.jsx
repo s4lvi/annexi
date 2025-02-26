@@ -16,6 +16,7 @@ export function ExpandPhaseUI({
   onCityPlacement,
   onCardSelected,
   onCancelPlacement,
+  onPhaseReady,
 }) {
   const { state, dispatch } = useGameState();
   const { placingCity, cityBuilt, players, currentPlayerId, currentHand } =
@@ -73,7 +74,6 @@ export function ExpandPhaseUI({
           </button>
         </div>
       )}
-
       <div className="absolute bottom-0 left-0 w-full h-2/5 bg-black bg-opacity-60 flex flex-col items-center z-20 py-2 overflow-hidden">
         {/* If a city has not been built (and the player is not in placement mode), show the base city card */}
         {!cityBuilt && !placingCity && (
@@ -130,8 +130,15 @@ export function ExpandPhaseUI({
             )}
           </div>
         )}
+        {cityBuilt && (
+          <button
+            onClick={() => onPhaseReady("expand")}
+            className="mt-2 px-4 py-2 rounded bg-green-500 text-white"
+          >
+            Ready (Expansion)
+          </button>
+        )}
       </div>
-
       {/* Confirmation Modal for purchasing a card */}
       <ConfirmationModal
         isOpen={modalOpen}

@@ -26,6 +26,7 @@ const GameCard = ({
   isDisabled = false,
   ownedCount = 0,
   currentProduction = 0,
+  needsResource = true,
 }) => {
   const { id, name, type, cost, effect } = card;
   const canAfford = currentProduction >= cost.production;
@@ -39,11 +40,13 @@ const GameCard = ({
         className={`relative flex flex-col w-64 bg-black rounded-lg overflow-hidden cursor-pointer 
                    transition-all duration-200 h-80 border-4 ${borderColor} 
                    ${
-                     isDisabled || !canAfford
+                     isDisabled || (!canAfford && needsResource)
                        ? "opacity-50"
                        : "opacity-90 hover:opacity-100 hover:scale-105"
                    }`}
-        onClick={!isDisabled && canAfford ? onClick : undefined}
+        onClick={
+          !isDisabled && (canAfford || !needsResource) ? onClick : undefined
+        }
       >
         {/* Card Image Section - Top 60% */}
         <div
@@ -81,7 +84,7 @@ const GameCard = ({
               <span className="text-yellow-400 mr-1">⚙️</span>
               <span className="text-white font-medium">{cost.production}</span>
             </div>
-            {!canAfford && (
+            {!canAfford && needsResource && (
               <span className="text-red-400 text-xs">
                 Insufficient resources
               </span>

@@ -4,7 +4,7 @@ import * as Phaser from "phaser";
 import ControlsManager from "./ControlsManager";
 import { useGameState } from "./gameState";
 import HexTileHighlighter from "./HexTileHighlighter";
-import { validateCityPlacement } from "./PhaseUi";
+import { validateCityPlacement, validateStructurePlacement } from "./PhaseUi";
 
 export default function PhaserGame({ mapData, matchId, onMapClick }) {
   const gameRef = useRef(null);
@@ -127,6 +127,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
           // Set initial phase and placingCity from global state.
           this.registry.set("phase", state.phase);
           this.registry.set("placingCity", state.placingCity);
+          this.registry.set("placingStructure", state.placingStructure);
 
           // Create a new graphics object for the base map
           this.mapGraphics = this.add.graphics();
@@ -216,15 +217,18 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
           // Use pointermove to update highlight.
           this.input.on("pointermove", (pointer) => {
             const tile = controlsManager.getTileAt(pointer.x, pointer.y);
-            // Only highlight if in expand phase and placingCity is true.
-            if (
-              this.registry.get("phase") === "expand" &&
-              this.registry.get("placingCity")
-            ) {
-              const currentState = this.registry.get("gameState");
+            const currentState = this.registry.get("gameState");
+            const phase = this.registry.get("phase");
+            const placingCity = this.registry.get("placingCity");
+            const placingStructure = this.registry.get("placingStructure");
 
-              // Use the same validation function as in PhaseUI
+            if (phase === "expand" && placingCity) {
+              // Use city placement validation for the expand phase.
               const isValid = validateCityPlacement(tile, currentState);
+              highlighter.updateHighlight(tile, isValid);
+            } else if (phase === "conquer" && placingStructure) {
+              // Use defensive structure placement validation for the conquer phase.
+              const isValid = validateStructurePlacement(tile, currentState);
               highlighter.updateHighlight(tile, isValid);
             } else {
               highlighter.hideHighlight();
@@ -256,6 +260,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
       const scene = gameRef.current.scene.scenes[0];
       scene.registry.set("phase", state.phase);
       scene.registry.set("placingCity", state.placingCity);
+      scene.registry.set("placingStructure", state.placingStructure);
       scene.registry.set("gameState", state);
 
       // Render cities and territories
@@ -411,6 +416,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
   }, [
     state.phase,
     state.placingCity,
+    state.placingStructure,
     state.cities,
     state.territories,
     state.currentPlayerId,

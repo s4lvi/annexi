@@ -23,6 +23,7 @@ const initialState = {
   availableCards: {}, // cards available for purchase
   targetCity: null,
   currentHand: [],
+  turnStep: 0,
   lastUpdate: Date.now(), // selected enemy city target
 };
 
@@ -80,17 +81,37 @@ function gameReducer(state, action) {
         ...state,
         currentHand: action.payload.currentHand,
       };
-
     case "UPDATE_CARD_PURCHASE":
       return {
         ...state,
         currentHand: action.payload.hand,
         inventory: action.payload.inventory,
       };
+    case "UPDATE_PLAYER_CARDS":
+      console.log("Updating player cards:", action.payload);
+      return {
+        ...state,
+        inventory: action.payload.inventory,
+      };
 
+    case "ADVANCE_TURN_STEP":
+      return {
+        ...state,
+        // Advance turn step but cap it at a maximum if needed
+        turnStep: state.turnStep < 6 ? state.turnStep + 1 : state.turnStep,
+      };
+    case "RESET_TURN_STEP":
+      return {
+        ...state,
+        turnStep: 0,
+      };
+    case "RESET_READY_STATUS":
+      return {
+        ...state,
+        // You might add other ready flag resets here
+      };
     case "SET_CURRENT_PLAYER":
       return { ...state, currentPlayerId: action.payload };
-
     case "UPDATE_PLAYER":
       return {
         ...state,
@@ -100,7 +121,6 @@ function gameReducer(state, action) {
             : player
         ),
       };
-
     case "UPDATE_PLAYER_RESOURCES":
       console.log("Updating player resources:", action.payload);
       return {
@@ -189,6 +209,18 @@ function gameReducer(state, action) {
       return {
         ...state,
         structures: [...state.structures, action.payload],
+        mapData: state.mapData.map((row) =>
+          row.map((tile) =>
+            tile.x === action.payload.x && tile.y === action.payload.y
+              ? {
+                  ...tile,
+                  structures: {
+                    type: action.payload.type,
+                  },
+                }
+              : tile
+          )
+        ),
       };
 
     case "ADD_ARMY":

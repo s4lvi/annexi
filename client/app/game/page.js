@@ -1,3 +1,4 @@
+// game/page.js
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -11,6 +12,7 @@ import { useAuth } from "@/components/AuthContext";
 import LoadingScreen from "@/components/LoadingScreen";
 import { CreditCard } from "lucide-react";
 import CardInventoryModal from "../../components/CardInventoryModal";
+import TurnProgressBar from "@/components/TurnProgressBar";
 
 // Dynamically import the PhaserGame component.
 const PhaserGame = dynamic(() => import("../../components/PhaserGame"), {
@@ -291,6 +293,7 @@ export default function GameContainer() {
         console.log(
           "Phase changed to conquer - setting expansionComplete to false"
         );
+        dispatch({ type: "RESET_READY_STATUS" });
         dispatch({ type: "SET_EXPANSION_COMPLETE", payload: false });
       }
     });
@@ -344,6 +347,22 @@ export default function GameContainer() {
       );
     });
 
+    socket.on("cardsUpdate", (data) => {
+      console.log("Cards inventory update received:", data);
+
+      // Update the player's resources in the game state
+      dispatch({
+        type: "UPDATE_PLAYER_CARDS",
+        payload: {
+          _id: currentPlayerId,
+          inventory: data.inventory,
+        },
+      });
+
+      // Display a message about the resource update
+      setMessage(`Card inventory updated`);
+    });
+
     socket.on("resetCityBuilt", (data) => {
       console.log("City built flag reset received:", data);
 
@@ -389,6 +408,30 @@ export default function GameContainer() {
     socket.on("handDealt", (data) => {
       console.log("Hand dealt event received:", data);
       dispatch({ type: "SET_CURRENT_HAND", payload: data.hand });
+    });
+
+    socket.on("buildStructureSuccess", (data) => {
+      console.log("Defensive structure placed successfully:", data);
+
+      // Update the game state to add the new defensive structure to the map.
+      dispatch({
+        type: "ADD_STRUCTURE",
+        payload: {
+          x: data.tile.x,
+          y: data.tile.y,
+          structure: data.structure, // contains details like name, effect, etc.
+          playerId: currentPlayerId,
+        },
+      });
+
+      // Remove the placed defensive structure card from the player's inventory.
+      // Assume that data.cardId identifies the card that was played.
+      dispatch({
+        type: "REMOVE_CARD_FROM_INVENTORY",
+        payload: data.cardId,
+      });
+
+      setMessage("Defensive structure placed!");
     });
 
     socket.on("territoryExpansionComplete", (data) => {
@@ -485,21 +528,22 @@ export default function GameContainer() {
     });
   };
 
+  const handlePhaseReady = (phaseType) => {
+    console.log(`Player ready for phase: ${phaseType}`);
+    socket.emit("playerReady", {
+      lobbyId: queryLobbyId,
+      username: currentPlayer.username,
+      _id: currentPlayerId,
+      phase: phaseType, // "expand" or "conquer"
+    });
+    // Advance the local turn progress.
+    dispatch({ type: "ADVANCE_TURN_STEP" });
+  };
+
   const handleCancelPlacement = () => {
     console.log("City placement canceled");
   };
 
-  const handleReady = () => {
-    console.log("Setting player ready status");
-    const playerInfo = players.find((p) => p._id === currentPlayerId) || {};
-    socket.emit("playerReady", {
-      lobbyId: queryLobbyId,
-      username: playerInfo.username || user?.username || "Guest",
-      _id: currentPlayerId,
-    });
-  };
-
-  // Additional handler to go back to lobby and reset state
   const handleBackToLobby = () => {
     // Reset state before navigating back
     dispatch({ type: "RESET_STATE" });
@@ -512,6 +556,7 @@ export default function GameContainer() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden">
+      <TurnProgressBar currentStep={state.turnStep} />
       <PhaserGame
         mapData={mapData}
         matchId={queryLobbyId}
@@ -523,6 +568,7 @@ export default function GameContainer() {
         onCardSelected={handleCardSelected}
         onCancelPlacement={handleCancelPlacement}
         onStructurePlacement={handleStructurePlacement}
+        onPhaseReady={handlePhaseReady}
       />
 
       {/* Inventory Icon Button */}
@@ -592,12 +638,6 @@ export default function GameContainer() {
           ))}
         </ul>
         <hr />
-        <button
-          onClick={handleReady}
-          className="mt-2 px-4 py-2 rounded bg-green-500 text-white"
-        >
-          Ready
-        </button>
         <button
           onClick={handleBackToLobby}
           className="mt-2 ml-2 px-4 py-2 rounded bg-green-500 text-white"

@@ -9,6 +9,8 @@ import { useGameState } from "../../components/gameState";
 import ResourceBar from "../../components/ResourceBar";
 import { useAuth } from "@/components/AuthContext";
 import LoadingScreen from "@/components/LoadingScreen";
+import { CreditCard } from "lucide-react";
+import CardInventoryModal from "../../components/CardInventoryModal";
 
 // Dynamically import the PhaserGame component.
 const PhaserGame = dynamic(() => import("../../components/PhaserGame"), {
@@ -29,6 +31,11 @@ export default function GameContainer() {
   const phaseUIRef = useRef(null);
   const socketInitializedRef = useRef(false);
   const currentUserRef = useRef(null);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+
+  const toggleInventory = () => {
+    setInventoryOpen(!inventoryOpen);
+  };
 
   // Auth context
   const { user, loading, ensureUser } = useAuth();
@@ -212,6 +219,19 @@ export default function GameContainer() {
       }
     });
 
+    socket.on("cardPurchaseSuccess", (data) => {
+      console.log("Card purchase success:", data);
+      // Update player resources, inventory, and the current hand in state
+      dispatch({
+        type: "UPDATE_CARD_PURCHASE",
+        payload: {
+          inventory: data.currentCards,
+          hand: data.hand,
+          production: data.production,
+        },
+      });
+    });
+
     socket.on("gameStateUpdate", (data) => {
       console.log("Game state update received:", data);
 
@@ -366,6 +386,11 @@ export default function GameContainer() {
       }
     });
 
+    socket.on("handDealt", (data) => {
+      console.log("Hand dealt event received:", data);
+      dispatch({ type: "SET_CURRENT_HAND", payload: data.hand });
+    });
+
     socket.on("territoryExpansionComplete", (data) => {
       console.log("Territory expansion complete event received:", data);
       setMessage(
@@ -500,7 +525,25 @@ export default function GameContainer() {
         onStructurePlacement={handleStructurePlacement}
       />
 
-      <div className="absolute top-5 bg-gray-900 rounded right-0 pr-6 z-10 flex flex-row">
+      {/* Inventory Icon Button */}
+      <div className="absolute top-28 right-5 z-10">
+        <button
+          onClick={toggleInventory}
+          className="bg-gray-700 p-2 rounded-full"
+        >
+          <CreditCard color="white" size={24} />
+        </button>
+      </div>
+      {/* Card Inventory Modal */}
+      <CardInventoryModal
+        isOpen={inventoryOpen}
+        onClose={() => setInventoryOpen(false)}
+        cards={
+          currentPlayer?.inventory.filter((card) => !card.hideFromInventory) ||
+          []
+        }
+      />
+      <div className="absolute top-5 bg-gray-900 rounded right-5 z-10 flex flex-row">
         <ResourceBar
           resourceValue={currentPlayer?.production || 0}
           icon={"⚙️"}
@@ -562,7 +605,7 @@ export default function GameContainer() {
           Back to Lobby
         </button>
       </div>
-      <div className="absolute top-20 right-0 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
+      <div className="absolute top-16 right-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
         {message && <p>{message}</p>}
       </div>
     </div>

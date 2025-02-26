@@ -22,6 +22,7 @@ const initialState = {
   armies: [], // armies queued for attack
   availableCards: {}, // cards available for purchase
   targetCity: null,
+  currentHand: [],
   lastUpdate: Date.now(), // selected enemy city target
 };
 
@@ -39,6 +40,8 @@ function gameReducer(state, action) {
         // Don't reset cityBuilt here as it's handled specifically
       };
 
+    case "SET_CURRENT_HAND":
+      return { ...state, currentHand: action.payload };
     case "SET_PLACING_CITY":
       return { ...state, placingCity: action.payload };
 
@@ -73,10 +76,16 @@ function gameReducer(state, action) {
       return { ...state, players: action.payload };
 
     case "SET_CARDS":
-      console.log("Setting available cards:", action.payload);
       return {
         ...state,
-        availableCards: action.payload,
+        currentHand: action.payload.currentHand,
+      };
+
+    case "UPDATE_CARD_PURCHASE":
+      return {
+        ...state,
+        currentHand: action.payload.hand,
+        inventory: action.payload.inventory,
       };
 
     case "SET_CURRENT_PLAYER":

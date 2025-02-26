@@ -1,37 +1,31 @@
 const lobbies = {};
 
-const cardData = [
+const baseDeckDefinition = [
   {
     id: "base-city",
     name: "Base City",
     type: "city",
-    reusable: true,
     effect: "Establish your capital city.",
     cost: { production: 10 },
+    count: 1,
+    alwaysInInventory: true, // This card is always available
+    hideFromInventory: true, // It will never show up in the inventory UI
   },
   {
     id: "city-upgrade-1",
     name: "Fortified City",
     type: "city",
-    reusable: true,
     effect: "Increases defense and production of city.",
     cost: { production: 20, gold: 1 },
+    count: 3,
   },
-  // {
-  //   id: "resource-structure-1",
-  //   name: "Granary",
-  //   type: "resource",
-  //   reusable: true,
-  //   effect: "Increases production by 5.",
-  //   cost: { production: 7 },
-  // },
   {
     id: "defensive-structure-1",
     name: "Watchtower",
     type: "defensive",
-    reusable: true,
     effect: "Shoots arrows up to 4 tiles.",
     cost: { production: 2 },
+    count: 5,
   },
   {
     id: "defensive-structure-2",
@@ -40,6 +34,7 @@ const cardData = [
     reusable: true,
     effect: "Blocks 1 tile.",
     cost: { production: 1 },
+    count: 20,
   },
   {
     id: "defensive-structure-3",
@@ -48,6 +43,7 @@ const cardData = [
     reusable: true,
     effect: "Shoots arrows up to 3 tiles.",
     cost: { production: 1 },
+    count: 10,
   },
   {
     id: "army-unit-1",
@@ -56,6 +52,7 @@ const cardData = [
     reusable: false,
     effect: "Basic attacking unit.",
     cost: { production: 1 },
+    count: 10,
   },
   {
     id: "army-unit-2",
@@ -64,15 +61,8 @@ const cardData = [
     reusable: false,
     effect: "Basic attacking unit.",
     cost: { production: 2 },
+    count: 5,
   },
-  // {
-  //   id: "effect-card-1",
-  //   name: "Blitz",
-  //   type: "effect",
-  //   reusable: false,
-  //   effect: "Temporarily doubles production.",
-  //   cost: { production: 8 },
-  // },
 ];
 
 const PLAYER_COLORS = [
@@ -92,6 +82,37 @@ const PHASES = {
   RESOLUTION: "resolution", // Battles, territory connectivity check
 };
 
+// Create a mapping for easy lookup by card id:
+const baseCardsMapping = {};
+baseDeckDefinition.forEach((card) => {
+  baseCardsMapping[card.id] = card;
+});
+
+// Returns a deck object mapping card id to count.
+function initializePlayerDeck() {
+  const deck = {};
+  baseDeckDefinition.forEach((card) => {
+    deck[card.id] = card.count;
+  });
+  return deck;
+}
+
+// Draw a random hand from the deck (without affecting the persistent counts for unpurchased cards)
+function drawHandFromDeck(deck, handSize, cardMapping) {
+  console.log("Drawing hand from deck:", deck);
+  let pool = [];
+  for (const cardId in deck) {
+    const count = deck[cardId];
+    // Add copies based on count
+    for (let i = 0; i < count; i++) {
+      pool.push(cardMapping[cardId]);
+    }
+  }
+  // Shuffle pool (assume shuffleArray is defined)
+  shuffleArray(pool);
+  return pool.slice(0, handSize);
+}
+
 function initLobby(lobbyId) {
   return {
     players: [],
@@ -105,7 +126,7 @@ function initLobby(lobbyId) {
       phaseDuration: 300000, // 5 minutes
     },
     turnStarted: false, // Ensure new turn logic runs only once.
-    phaseTransitionInProgress: false, // NEW: guard for phase transition
+    phaseTransitionInProgress: false, // Guard for phase transition
   };
 }
 
@@ -121,6 +142,17 @@ function startNewTurn(lobbyId, io) {
   collectResources(lobby, io);
   // Reset pending cities.
   lobby.pendingCities = [];
+
+  lobby.players.forEach((player) => {
+    player.currentHand = drawHandFromDeck(player.deck, 7, baseCardsMapping);
+    console.log(
+      `Dealt hand for player ${player.username}:`,
+      player.currentHand
+    );
+    if (player.socketId) {
+      io.to(player.socketId).emit("handDealt", { hand: player.currentHand });
+    }
+  });
   // Emit phaseChange for expand phase.
   io.to(`lobby-${lobbyId}`).emit("phaseChange", {
     phase: PHASES.EXPAND,
@@ -128,18 +160,21 @@ function startNewTurn(lobbyId, io) {
     waiting: false,
   });
   console.log(`Resources collected for lobby ${lobbyId} at turn start.`);
-  // Emit game state update including available cards.
+  // Emit game state update with grouped cards from baseDeckDefinition.
   const groupedCards = {
-    citycards: cardData.filter((card) => card.type === "city"),
-    resourcestructures: cardData.filter((card) => card.type === "resource"),
-    defensivestructures: cardData.filter((card) => card.type === "defensive"),
-    units: cardData.filter((card) => card.type === "unit"),
-    effects: cardData.filter((card) => card.type === "effect"),
+    citycards: baseDeckDefinition.filter((card) => card.type === "city"),
+    resourcestructures: baseDeckDefinition.filter(
+      (card) => card.type === "resource"
+    ),
+    defensivestructures: baseDeckDefinition.filter(
+      (card) => card.type === "defensive"
+    ),
+    units: baseDeckDefinition.filter((card) => card.type === "unit"),
+    effects: baseDeckDefinition.filter((card) => card.type === "effect"),
   };
   io.to(`lobby-${lobbyId}`).emit("gameStateUpdate", {
     phase: PHASES.EXPAND,
     players: lobby.players,
-    cards: groupedCards,
     message: "Game state refreshed for new turn",
   });
 }
@@ -476,7 +511,7 @@ function processNextExpansionRing(lobby, io, lobbyId) {
   // Process the next ring after a delay for visual effect
   setTimeout(() => {
     processNextExpansionRing(lobby, io, lobbyId);
-  }, 200); // Increased delay to make the animation more visible
+  }, 200);
 }
 
 // Helper function to get adjacent hex coordinates
@@ -606,19 +641,10 @@ module.exports = function (io) {
         production: 10,
         gold: 0,
         cities: [],
-        cards: {
-          citycards: cardData.filter((card) => card.type === "city"),
-          resourcestructures: cardData.filter(
-            (card) => card.type === "resource"
-          ),
-          defensivestructures: cardData.filter(
-            (card) => card.type === "defensive"
-          ),
-          units: cardData.filter((card) => card.type === "unit"),
-          effects: cardData.filter((card) => card.type === "effect"),
-        },
+        deck: initializePlayerDeck(),
+        inventory: [],
+        currentHand: [],
         color: availableColor,
-        // New players are not marked as disconnected
         disconnected: false,
       });
       io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
@@ -635,14 +661,31 @@ module.exports = function (io) {
       }
       lobbies[lobbyId].mapData = mapData;
       lobbies[lobbyId].phase = PHASES.EXPAND;
+
+      lobbies[lobbyId].players.forEach((player) => {
+        player.currentHand = drawHandFromDeck(player.deck, 7, baseCardsMapping);
+        if (player.socketId) {
+          io.to(player.socketId).emit("handDealt", {
+            hand: player.currentHand,
+          });
+          console.log(
+            "Dealt initial hand to player",
+            player.username,
+            player.currentHand
+          );
+        }
+      });
+
       const groupedCards = {
-        citycards: cardData.filter((card) => card.type === "city"),
-        resourcestructures: cardData.filter((card) => card.type === "resource"),
-        defensivestructures: cardData.filter(
+        citycards: baseDeckDefinition.filter((card) => card.type === "city"),
+        resourcestructures: baseDeckDefinition.filter(
+          (card) => card.type === "resource"
+        ),
+        defensivestructures: baseDeckDefinition.filter(
           (card) => card.type === "defensive"
         ),
-        units: cardData.filter((card) => card.type === "unit"),
-        effects: cardData.filter((card) => card.type === "effect"),
+        units: baseDeckDefinition.filter((card) => card.type === "unit"),
+        effects: baseDeckDefinition.filter((card) => card.type === "effect"),
       };
       io.to(`lobby-${lobbyId}`).emit("gameStarted", {
         mapData,
@@ -704,21 +747,15 @@ module.exports = function (io) {
         return;
       }
 
-      // Prepare the complete game state
+      // Prepare the complete game state using the new card system
       const fullState = {
         mapData: lobby.mapData,
         players: lobby.players,
         phase: lobby.phase,
-        cards: player.cards || {
-          citycards: cardData.filter((card) => card.type === "city"),
-          resourcestructures: cardData.filter(
-            (card) => card.type === "resource"
-          ),
-          defensivestructures: cardData.filter(
-            (card) => card.type === "defensive"
-          ),
-          units: cardData.filter((card) => card.type === "unit"),
-          effects: cardData.filter((card) => card.type === "effect"),
+        cards: {
+          deck: player.deck,
+          inventory: player.inventory,
+          currentHand: player.currentHand,
         },
         territories: lobby.playerTerritories || {},
         cities: [],
@@ -852,18 +889,28 @@ module.exports = function (io) {
 
     socket.on("buyCard", (data) => {
       const { lobbyId, card, _id } = data;
-      console.log("Received buyCard event with data:", data);
       const lobby = lobbies[lobbyId];
       if (!lobby) return;
       const player = lobby.players.find((p) => p._id === _id);
-      console.log("Player found:", player);
       if (!player) return;
-      const cardDef = cardData.find((c) => c.id === card.id);
-      console.log("Card definition found:", cardDef);
-      if (!cardDef) {
-        socket.emit("cardPurchaseError", { message: "Card not found." });
+
+      // Verify the card exists in the player's current hand.
+      const handIndex = player.currentHand.findIndex((c) => c.id === card.id);
+      if (handIndex === -1) {
+        socket.emit("cardPurchaseError", {
+          message: "Card not available in hand.",
+        });
         return;
       }
+
+      const cardDef = baseCardsMapping[card.id];
+      if (!cardDef) {
+        socket.emit("cardPurchaseError", {
+          message: "Card definition not found.",
+        });
+        return;
+      }
+
       const cost = cardDef.cost.production;
       if (player.production < cost) {
         socket.emit("cardPurchaseError", {
@@ -871,37 +918,28 @@ module.exports = function (io) {
         });
         return;
       }
-      console.log("Player has enough production. Proceeding with purchase.");
+
+      // Process the purchase: deduct cost, remove the card from the current hand, update deck count.
       player.production -= cost;
-      if (!player.cards) {
-        player.cards = {
-          citycards: [],
-          resourcestructures: [],
-          defensivestructures: [],
-          units: [],
-          effects: [],
-        };
+      player.currentHand.splice(handIndex, 1);
+
+      // Permanently remove one copy from the player's deck.
+      if (player.deck[card.id] > 0) {
+        player.deck[card.id]--;
       }
-      const category =
-        cardDef.type === "city"
-          ? "citycards"
-          : cardDef.type === "resource"
-          ? "resourcestructures"
-          : cardDef.type === "defensive"
-          ? "defensivestructures"
-          : cardDef.type === "unit"
-          ? "units"
-          : "effects";
-      if (!player.cards[category]) {
-        player.cards[category] = [];
+
+      // Add the card to the player's inventory unless it should be hidden.
+      if (!cardDef.hideFromInventory) {
+        player.inventory.push(cardDef);
       }
-      player.cards[category].push(cardDef);
-      console.log("Card added to player's collection:", player.cards);
+
+      // Emit the updated state, including the updated hand.
       socket.emit("cardPurchaseSuccess", {
         card: cardDef,
         message: `${cardDef.name} purchased successfully.`,
-        currentCards: player.cards,
+        currentCards: player.inventory,
         production: player.production,
+        hand: player.currentHand, // Updated hand after removal.
       });
       updatePlayerResources(player, socket);
     });

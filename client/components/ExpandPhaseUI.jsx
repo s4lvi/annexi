@@ -18,29 +18,21 @@ export function ExpandPhaseUI({
   onCancelPlacement,
 }) {
   const { state, dispatch } = useGameState();
-  const { placingCity, cityBuilt, players, currentPlayerId, availableCards } =
+  const { placingCity, cityBuilt, players, currentPlayerId, currentHand } =
     state;
   const currentPlayer = players.find((p) => p._id === currentPlayerId);
 
-  // State for confirmation modal
+  // Local state for confirmation modal
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedCard, setSelectedCard] = useState(null);
 
-  // Count owned cards
+  // Returns the number of purchased copies for a given card (from the player's inventory)
   const getOwnedCardCount = (cardId) => {
-    if (!currentPlayer || !currentPlayer.cards) return 0;
-
-    // Search through all card categories
-    let count = 0;
-    Object.values(currentPlayer.cards).forEach((category) => {
-      category.forEach((card) => {
-        if (card.id === cardId) count++;
-      });
-    });
-
-    return count;
+    if (!currentPlayer || !currentPlayer.inventory) return 0;
+    return currentPlayer.inventory.filter((card) => card.id === cardId).length;
   };
 
+  // When the base city card is clicked, trigger city placement mode.
   const handleBuildCityClick = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -48,17 +40,24 @@ export function ExpandPhaseUI({
     dispatch({ type: "SET_PLACING_CITY", payload: true });
   };
 
+  // When a card from the hand is selected, open the confirmation modal.
   const handleCardSelection = (card) => {
-    // Open the confirmation modal with the selected card
     setSelectedCard(card);
     setModalOpen(true);
   };
 
+  // Confirm the purchase: call the parent handler (which emits the "buyCard" event).
   const handleConfirmPurchase = () => {
     if (selectedCard) {
       onCardSelected(selectedCard);
+      setModalOpen(false);
     }
   };
+
+  // Filter out the base city card from the current hand so that it never appears as a purchasable option.
+  const handCards = currentHand
+    ? currentHand.filter((card) => card.id !== "base-city")
+    : [];
 
   return (
     <div>
@@ -76,7 +75,7 @@ export function ExpandPhaseUI({
       )}
 
       <div className="absolute bottom-0 left-0 w-full h-2/5 bg-black bg-opacity-60 flex flex-col items-center z-20 py-2 overflow-hidden">
-        {/* If a city has not been built and the player isn't currently placing one */}
+        {/* If a city has not been built (and the player is not in placement mode), show the base city card */}
         {!cityBuilt && !placingCity && (
           <div className="w-full overflow-x-auto">
             <div className="w-full flex flex-row justify-center items-center">
@@ -102,52 +101,38 @@ export function ExpandPhaseUI({
           </div>
         )}
 
-        {/* When a city is built, show available card options */}
-        {cityBuilt &&
-          availableCards &&
-          Object.entries(availableCards).length > 0 && (
-            <div className="w-full overflow-x-auto">
+        {/* When a city is built, show the hand of cards for purchase */}
+        {cityBuilt && (
+          <div className="w-full overflow-x-auto">
+            {handCards.length > 0 ? (
               <div className="w-full flex flex-row">
-                {Object.entries(availableCards)
-                  .filter(
-                    ([group, cards]) =>
-                      group !== "citycards" && cards.length > 0
-                  )
-                  .map(([group, cards]) => (
-                    <div key={group} className="p-2">
-                      <div className="flex flex-nowrap space-x-1 overflow-x-auto">
-                        {cards.map((card) => (
-                          <GameCard
-                            key={card.id}
-                            card={card}
-                            onClick={() => handleCardSelection(card)}
-                            isDisabled={
-                              currentPlayer?.production < card.cost.production
-                            }
-                            ownedCount={getOwnedCardCount(card.id)}
-                            currentProduction={currentPlayer?.production || 0}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                {handCards.map((card, index) => (
+                  <div key={index} className="p-2">
+                    <GameCard
+                      card={card}
+                      onClick={() => handleCardSelection(card)}
+                      isDisabled={
+                        currentPlayer?.production < card.cost.production
+                      }
+                      ownedCount={getOwnedCardCount(card.id)}
+                      currentProduction={currentPlayer?.production || 0}
+                    />
+                  </div>
+                ))}
               </div>
-            </div>
-          )}
-
-        {cityBuilt &&
-          availableCards &&
-          Object.entries(availableCards).length == 0 && (
-            <div className="w-full overflow-x-auto">
-              <h3 className="text-xl font-bold text-center text-white mb-4">
-                No cards available. You can click ready and move to the next
-                phase.
-              </h3>
-            </div>
-          )}
+            ) : (
+              <div className="w-full overflow-x-auto">
+                <h3 className="text-xl font-bold text-center text-white mb-4">
+                  No cards available. You can click ready and move to the next
+                  phase.
+                </h3>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Confirmation Modal */}
+      {/* Confirmation Modal for purchasing a card */}
       <ConfirmationModal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}

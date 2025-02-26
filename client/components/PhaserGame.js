@@ -57,23 +57,23 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
           offsetY;
 
         // Choose color and opacity based on distance thresholds
-        if (distance <= 2) {
+        if (distance <= 3) {
           // Strong bonus (0.2): green line
-          scene.adjacencyGraphics.lineStyle(3, 0x00ff00, 0.8);
+          scene.adjacencyGraphics.lineStyle(8, 0x00ff00, 0.8);
           scene.adjacencyGraphics.beginPath();
           scene.adjacencyGraphics.moveTo(centerX1, centerY1);
           scene.adjacencyGraphics.lineTo(centerX2, centerY2);
           scene.adjacencyGraphics.strokePath();
         } else if (distance <= 5) {
           // Medium bonus (0.1): yellow line
-          scene.adjacencyGraphics.lineStyle(2, 0xffff00, 0.6);
+          scene.adjacencyGraphics.lineStyle(5, 0xffff00, 0.6);
           scene.adjacencyGraphics.beginPath();
           scene.adjacencyGraphics.moveTo(centerX1, centerY1);
           scene.adjacencyGraphics.lineTo(centerX2, centerY2);
           scene.adjacencyGraphics.strokePath();
         } else if (distance <= 7) {
           // No bonus, but shows potential future connection: red line
-          scene.adjacencyGraphics.lineStyle(1, 0xff0000, 0.4);
+          scene.adjacencyGraphics.lineStyle(2, 0xff0000, 0.4);
           scene.adjacencyGraphics.beginPath();
           scene.adjacencyGraphics.moveTo(centerX1, centerY1);
           scene.adjacencyGraphics.lineTo(centerX2, centerY2);
@@ -112,6 +112,15 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
       height: window.innerHeight,
       parent: "phaser-game",
       scene: {
+        preload: function () {
+          // Preload city and structure images
+          // In Next.js, assets should be in the public folder
+          this.load.setBaseURL(""); // Set base URL to public folder
+
+          // If you know the specific city and structure types in advance, you can preload them here
+          // Example: this.load.image('city_residential', '/images/structure/residential.png');
+          // If not, you'll need to dynamically load them when rendering
+        },
         create: function () {
           // Set up registry values that never change
           this.registry.set("offsetX", offsetX);
@@ -131,11 +140,13 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
 
           // Create a new graphics object for the base map
           this.mapGraphics = this.add.graphics();
-          this.adjacencyGraphics = this.add.graphics();
-          this.legendGraphics = this.add.graphics();
-          // Create separate graphics layers for territories and cities
           this.territoryGraphics = this.add.graphics();
+          this.adjacencyGraphics = this.add.graphics();
           this.cityGraphics = this.add.graphics();
+
+          // Create a container for city and structure images
+          this.cityImagesContainer = this.add.container(0, 0);
+          this.structureImagesContainer = this.add.container(0, 0);
 
           this.cameras.main.setZoom(1);
 
@@ -250,6 +261,30 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
     };
   }, [mapData, matchId, onMapClick, state.phase, state.placingCity]);
 
+  // Helper function to format image name
+  const formatImageName = (type) => {
+    return type ? type.toLowerCase().replace(/\s+/g, "_") : "default";
+  };
+
+  // Helper function to load an image if not already loaded
+  const loadImageIfNeeded = (scene, key, path) => {
+    if (!scene.textures.exists(key)) {
+      // Create a promise to load the image
+      return new Promise((resolve) => {
+        scene.load.image(key, path);
+        scene.load.once(Phaser.Loader.Events.COMPLETE, () => {
+          resolve(true);
+        });
+        scene.load.once(Phaser.Loader.Events.FILE_LOAD_ERROR, () => {
+          console.warn(`Failed to load image: ${path}`);
+          resolve(false);
+        });
+        scene.load.start();
+      });
+    }
+    return Promise.resolve(true);
+  };
+
   // Update Phaser scene registry and render cities and territories
   useEffect(() => {
     if (
@@ -268,6 +303,15 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
         // Clear previous renders
         scene.cityGraphics.clear();
         scene.territoryGraphics.clear();
+
+        // Clear previous images
+        if (scene.cityImagesContainer) {
+          scene.cityImagesContainer.removeAll(true);
+        }
+
+        if (scene.structureImagesContainer) {
+          scene.structureImagesContainer.removeAll(true);
+        }
 
         // Get hex dimensions
         const hexRadius = scene.registry.get("hexRadius");
@@ -368,44 +412,121 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
             scene.cityGraphics.closePath();
             scene.cityGraphics.fillPath();
 
-            // Draw city indicator (a simple building shape)
-            scene.cityGraphics.fillStyle(0xffffff, 0.9);
+            // Format the image name based on city type
+            const formattedType = formatImageName(city.type);
+            const imageKey = `city_${formattedType}`;
+            const imagePath = `/images/structure/${formattedType}.png`;
 
-            // Draw a simple building in the center
-            const buildingWidth = hexRadius * 0.6;
-            const buildingHeight = hexRadius * 0.8;
-            scene.cityGraphics.fillRect(
-              centerX - buildingWidth / 2,
-              centerY - buildingHeight / 2,
-              buildingWidth,
-              buildingHeight
+            // Check if the image is already loaded or load it
+            loadImageIfNeeded(scene, imageKey, imagePath).then((success) => {
+              if (success) {
+                // Create and add the city image
+                const cityImage = scene.add.image(centerX, centerY, imageKey);
+
+                // Scale the image to fit within the hex
+                const scale =
+                  (hexRadius * 1.5) /
+                  Math.max(cityImage.width, cityImage.height);
+                cityImage.setScale(scale);
+
+                // Add to container for easy cleanup
+                scene.cityImagesContainer.add(cityImage);
+
+                // Add level indicator if greater than 1
+                if (city.level > 1) {
+                  const levelText = scene.add.text(
+                    centerX,
+                    centerY + hexRadius * 0.5,
+                    city.level.toString(),
+                    {
+                      font: "14px Arial",
+                      fill: "#FFFFFF",
+                      stroke: "#000000",
+                      strokeThickness: 3,
+                    }
+                  );
+                  levelText.setOrigin(0.5);
+                  scene.cityImagesContainer.add(levelText);
+                }
+              }
+            });
+          }
+        });
+
+        state.structures.forEach((structure) => {
+          console.log("Structure:", structure);
+          if (
+            mapData &&
+            mapData[structure.y] &&
+            mapData[structure.y][structure.x]
+          ) {
+            // Find player index for color
+            let playerIndex = 0;
+            Object.keys(territories).forEach((pid, idx) => {
+              if (pid === structure.playerId) playerIndex = idx;
+            });
+
+            const player = state.players.find(
+              (p) => p._id === structure.playerId
             );
 
-            // Add a roof
-            scene.cityGraphics.fillStyle(0x000000, 0.7);
+            // Use player's selected color if available, fall back to index-based color if not
+            const color =
+              player && player.color
+                ? player.color.value
+                : scene.playerColors[playerIndex % scene.playerColors.length];
+
+            // Calculate hex center coordinates
+            const centerX =
+              structure.x * (hexWidth * 0.75) + hexRadius + offsetX;
+            const centerY =
+              structure.y * hexHeight +
+              (structure.x % 2 ? hexHeight / 2 : 0) +
+              hexHeight / 2 +
+              offsetY;
+
+            // Draw structure hex - solid color
+            const points = hexagonPoints.map((p) => ({
+              x: p.x + centerX,
+              y: p.y + centerY,
+            }));
+
+            scene.cityGraphics.fillStyle(color, 1);
             scene.cityGraphics.beginPath();
-            scene.cityGraphics.moveTo(
-              centerX - buildingWidth / 2,
-              centerY - buildingHeight / 2
-            );
-            scene.cityGraphics.lineTo(centerX, centerY - buildingHeight);
-            scene.cityGraphics.lineTo(
-              centerX + buildingWidth / 2,
-              centerY - buildingHeight / 2
-            );
+            scene.cityGraphics.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {
+              scene.cityGraphics.lineTo(points[i].x, points[i].y);
+            }
             scene.cityGraphics.closePath();
             scene.cityGraphics.fillPath();
 
-            // Add level indicator if greater than 1
-            if (city.level > 1) {
-              scene.cityGraphics.setFont("14px Arial");
-              scene.cityGraphics.setFill("#000000");
-              scene.cityGraphics.fillText(
-                city.level.toString(),
-                centerX - 4,
-                centerY + 5
-              );
-            }
+            // Format the image name based on structure type
+            console.log(structure);
+            const formattedType = formatImageName(structure.structure.name);
+            const imageKey = `structure_${formattedType}`;
+            const imagePath = `/images/structure/${formattedType}.png`;
+
+            // Check if the image is already loaded or load it
+            loadImageIfNeeded(scene, imageKey, imagePath).then((success) => {
+              if (success) {
+                // Create and add the structure image
+                const structureImage = scene.add.image(
+                  centerX,
+                  centerY,
+                  imageKey
+                );
+
+                // Scale the image to fit within the hex
+                const scale =
+                  (hexRadius * 1) /
+                  Math.max(structureImage.width, structureImage.height);
+                structureImage.setScale(scale);
+
+                // Add to container for easy cleanup
+                scene.structureImagesContainer.add(structureImage);
+              }
+              // No fallback drawing for structures as they don't have a default representation
+            });
           }
         });
 

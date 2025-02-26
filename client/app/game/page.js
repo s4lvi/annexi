@@ -358,7 +358,7 @@ export default function GameContainer() {
           inventory: data.inventory,
         },
       });
-
+      console.log("Updated player cards in state:", state.inventory);
       // Display a message about the resource update
       setMessage(`Card inventory updated`);
     });
@@ -423,12 +423,13 @@ export default function GameContainer() {
           playerId: currentPlayerId,
         },
       });
+      console.log("Structure added to game state:", data.structure, state);
 
       // Remove the placed defensive structure card from the player's inventory.
       // Assume that data.cardId identifies the card that was played.
       dispatch({
         type: "REMOVE_CARD_FROM_INVENTORY",
-        payload: data.cardId,
+        payload: data.structure.id,
       });
 
       setMessage("Defensive structure placed!");

@@ -91,7 +91,14 @@ function gameReducer(state, action) {
       console.log("Updating player cards:", action.payload);
       return {
         ...state,
-        inventory: action.payload.inventory,
+        players: state.players.map((player) =>
+          player._id === action.payload._id
+            ? {
+                ...player,
+                inventory: action.payload.inventory,
+              }
+            : player
+        ),
       };
 
     case "ADVANCE_TURN_STEP":

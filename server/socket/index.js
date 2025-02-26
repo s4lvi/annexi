@@ -189,7 +189,7 @@ function updatePlayerResources(player, socket) {
 }
 
 function updatePlayerCards(player, socket) {
-  console.log("Updating player cards:", player.username);
+  console.log("Updating player cards:", player.username, player.inventory);
   const cardsUpdate = {
     inventory: player.inventory,
   };
@@ -294,7 +294,7 @@ function advancePhase(lobbyId, io) {
         phase: PHASES.RESOLUTION,
         message: "Phase moved to resolution. Battle simulation starting...",
         waiting: true,
-        waitDuration: 5000,
+        waitDuration: 1000,
       });
       // Delay for battle resolution then start a new turn.
       setTimeout(() => {
@@ -321,7 +321,7 @@ function advancePhase(lobbyId, io) {
           players: lobby.players,
           message: "New turn started. Ready status reset.",
         });
-      }, 5000);
+      }, 1000);
       break;
     case PHASES.RESOLUTION:
       // This branch is handled in the conquer delay.

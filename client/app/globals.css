@@ -70,7 +70,7 @@
 /* Base styles */
 body {
   color: rgb(var(--foreground));
-  background: rgb(var(--background));
+  background-image: url("/map.png")
 }
 
 /* Custom utility classes */

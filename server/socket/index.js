@@ -75,6 +75,17 @@ const cardData = [
   // },
 ];
 
+const PLAYER_COLORS = [
+  { name: "Red", value: 0xed6a5a },
+  { name: "Teal", value: 0x5ca4a9 },
+  { name: "Yellow", value: 0xe6af2e },
+  { name: "Purple", value: 0x9370db },
+  { name: "Navy", value: 0x3d405b },
+  { name: "Sage", value: 0x81b29a },
+  { name: "Orange", value: 0xf4845f },
+  { name: "Slate", value: 0x706677 },
+];
+
 const PHASES = {
   EXPAND: "expand", // Collect resources, build city, purchase cards
   CONQUER: "conquer", // Territory expansion, place defensive structures, queue armies, select targets
@@ -465,7 +476,7 @@ function processNextExpansionRing(lobby, io, lobbyId) {
   // Process the next ring after a delay for visual effect
   setTimeout(() => {
     processNextExpansionRing(lobby, io, lobbyId);
-  }, 800); // Increased delay to make the animation more visible
+  }, 200); // Increased delay to make the animation more visible
 }
 
 // Helper function to get adjacent hex coordinates
@@ -546,19 +557,47 @@ module.exports = function (io) {
       if (!lobbies[lobbyId]) {
         lobbies[lobbyId] = initLobby(lobbyId);
       }
-      if (lobbies[lobbyId].players.some((p) => p._id === _id)) {
-        console.log("Player already in lobby:", username);
+
+      // Check for an existing player with the same _id
+      const existingPlayerIndex = lobbies[lobbyId].players.findIndex(
+        (p) => p._id === _id
+      );
+
+      if (existingPlayerIndex !== -1) {
+        console.log(
+          `Player ${username} (${_id}) is returning to lobby ${lobbyId}`
+        );
+        const existingPlayer = lobbies[lobbyId].players[existingPlayerIndex];
+
+        // If the player was marked as disconnected, cancel the removal timeout
+        if (existingPlayer.disconnected) {
+          clearTimeout(existingPlayer.disconnectTimeout);
+          existingPlayer.disconnected = false;
+        }
+
+        // Update the player's socket ID
+        existingPlayer.socketId = socket.id;
+
+        // Send the restored state to the reconnecting player
+        socket.emit("playerStateSync", {
+          player: existingPlayer,
+          message: "Your session has been restored.",
+        });
+
+        // Notify others in the lobby
+        io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
+          players: lobbies[lobbyId].players,
+          message: `${username} has reconnected.`,
+        });
         return;
       }
-      const playerCards = {
-        citycards: cardData.filter((card) => card.type === "city"),
-        resourcestructures: cardData.filter((card) => card.type === "resource"),
-        defensivestructures: cardData.filter(
-          (card) => card.type === "defensive"
-        ),
-        units: cardData.filter((card) => card.type === "unit"),
-        effects: cardData.filter((card) => card.type === "effect"),
-      };
+
+      // If no existing player was found, add them as a new player
+      const takenColors = lobbies[lobbyId].players.map((p) => p.color?.value);
+      const availableColor =
+        PLAYER_COLORS.find((color) => !takenColors.includes(color.value)) ||
+        PLAYER_COLORS[0];
+
       lobbies[lobbyId].players.push({
         socketId: socket.id,
         username,
@@ -567,7 +606,20 @@ module.exports = function (io) {
         production: 10,
         gold: 0,
         cities: [],
-        cards: playerCards,
+        cards: {
+          citycards: cardData.filter((card) => card.type === "city"),
+          resourcestructures: cardData.filter(
+            (card) => card.type === "resource"
+          ),
+          defensivestructures: cardData.filter(
+            (card) => card.type === "defensive"
+          ),
+          units: cardData.filter((card) => card.type === "unit"),
+          effects: cardData.filter((card) => card.type === "effect"),
+        },
+        color: availableColor,
+        // New players are not marked as disconnected
+        disconnected: false,
       });
       io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
         players: lobbies[lobbyId].players,
@@ -598,6 +650,41 @@ module.exports = function (io) {
         phase: lobbies[lobbyId].phase,
         cards: groupedCards,
         production: lobbies[lobbyId].players[0].production,
+      });
+    });
+
+    socket.on("selectColor", (data) => {
+      const { lobbyId, _id, colorValue } = data;
+      if (!lobbies[lobbyId]) return;
+
+      // Check if color is already taken by another player
+      const isColorTaken = lobbies[lobbyId].players.some(
+        (p) => p._id !== _id && p.color?.value === colorValue
+      );
+
+      if (isColorTaken) {
+        socket.emit("colorSelectionError", { message: "Color already taken" });
+        return;
+      }
+
+      // Find the color object
+      const selectedColor = PLAYER_COLORS.find((c) => c.value === colorValue);
+      if (!selectedColor) return;
+
+      // Update player's color
+      lobbies[lobbyId].players = lobbies[lobbyId].players.map((player) => {
+        if (player._id === _id) {
+          return { ...player, color: selectedColor };
+        }
+        return player;
+      });
+
+      // Broadcast updated player list
+      io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
+        players: lobbies[lobbyId].players,
+        message: `${
+          lobbies[lobbyId].players.find((p) => p._id === _id)?.username
+        } changed color to ${selectedColor.name}.`,
       });
     });
 
@@ -822,16 +909,27 @@ module.exports = function (io) {
     socket.on("disconnect", () => {
       console.log("Client disconnected:", socket.id);
       for (const lobbyId in lobbies) {
-        const beforeCount = lobbies[lobbyId].players.length;
-        lobbies[lobbyId].players = lobbies[lobbyId].players.filter(
-          (p) => p.socketId !== socket.id
-        );
-        if (lobbies[lobbyId].players.length !== beforeCount) {
-          io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
-            players: lobbies[lobbyId].players,
-            message: `A player left the lobby.`,
-          });
-        }
+        lobbies[lobbyId].players.forEach((player) => {
+          if (player.socketId === socket.id) {
+            console.log(`Marking player ${player.username} as disconnected`);
+            // Mark the player as disconnected and clear the current socketId
+            player.socketId = null;
+            player.disconnected = true;
+            // Set a timeout to remove the player if they do not reconnect within 10 seconds
+            player.disconnectTimeout = setTimeout(() => {
+              console.log(
+                `Removing player ${player.username} due to prolonged disconnection`
+              );
+              lobbies[lobbyId].players = lobbies[lobbyId].players.filter(
+                (p) => p._id !== player._id
+              );
+              io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
+                players: lobbies[lobbyId].players,
+                message: `${player.username} has left the lobby.`,
+              });
+            }, 10000); // 10 seconds grace period
+          }
+        });
       }
     });
   });

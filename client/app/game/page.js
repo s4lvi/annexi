@@ -151,6 +151,23 @@ export default function GameContainer() {
       _id: currentPlayerId,
     });
 
+    socket.on("playerStateSync", (data) => {
+      console.log("Received player state sync:", data);
+
+      if (data.player) {
+        // Show reconnection message
+        if (data.message) {
+          setMessage(data.message);
+        }
+
+        // Request full state update to restore all game data
+        socket.emit("requestFullState", {
+          lobbyId: queryLobbyId,
+          _id: currentPlayerId,
+        });
+      }
+    });
+
     // Socket event handlers
     socket.on("fullStateUpdate", (data) => {
       console.log("Received full state update:", data);
@@ -220,6 +237,7 @@ export default function GameContainer() {
         dispatch({ type: "SET_CITY_BUILT", payload: false });
       }
 
+      dispatch({ type: "SET_LAST_UPDATE", payload: Date.now() });
       // Show message if provided
       if (data.message) {
         setMessage(data.message);
@@ -482,7 +500,7 @@ export default function GameContainer() {
         onStructurePlacement={handleStructurePlacement}
       />
 
-      <div className="absolute top-5 bg-gray-900 rounded right-1/3 z-10 flex flex-row">
+      <div className="absolute top-5 bg-gray-900 rounded right-0 pr-6 z-10 flex flex-row">
         <ResourceBar
           resourceValue={currentPlayer?.production || 0}
           icon={"⚙️"}
@@ -531,7 +549,6 @@ export default function GameContainer() {
           ))}
         </ul>
         <hr />
-        <p>Production: {currentPlayer?.production || 0}</p>
         <button
           onClick={handleReady}
           className="mt-2 px-4 py-2 rounded bg-green-500 text-white"
@@ -545,7 +562,7 @@ export default function GameContainer() {
           Back to Lobby
         </button>
       </div>
-      <div className="absolute top-5 right-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
+      <div className="absolute top-20 right-0 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
         {message && <p>{message}</p>}
       </div>
     </div>

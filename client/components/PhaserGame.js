@@ -243,7 +243,6 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
 
     return () => {
       window.removeEventListener("resize", handleResize);
-      // Don't destroy the game on component unmount
     };
   }, [mapData, matchId, onMapClick, state.phase, state.placingCity]);
 
@@ -276,8 +275,13 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
         // Render territories first (underneath cities)
         const territories = state.territories;
         Object.keys(territories).forEach((playerId, playerIndex) => {
+          const player = state.players.find((p) => p._id === playerId);
+
+          // Use player's selected color if available, fall back to index-based color if not
           const color =
-            scene.playerColors[playerIndex % scene.playerColors.length];
+            player && player.color
+              ? player.color.value
+              : scene.playerColors[playerIndex % scene.playerColors.length];
           const alpha = 0.6; // Semi-transparent
 
           territories[playerId].forEach((territory) => {
@@ -328,8 +332,13 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
               if (pid === city.playerId) playerIndex = idx;
             });
 
+            const player = state.players.find((p) => p._id === city.playerId);
+
+            // Use player's selected color if available, fall back to index-based color if not
             const color =
-              scene.playerColors[playerIndex % scene.playerColors.length];
+              player && player.color
+                ? player.color.value
+                : scene.playerColors[playerIndex % scene.playerColors.length];
 
             // Calculate hex center coordinates
             const centerX = city.x * (hexWidth * 0.75) + hexRadius + offsetX;
@@ -406,6 +415,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
     state.territories,
     state.currentPlayerId,
     mapData,
+    state.lastUpdate,
   ]);
 
   return (

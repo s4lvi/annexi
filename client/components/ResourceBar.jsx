@@ -10,10 +10,10 @@ export default function ResourceBar({ resourceValue, icon }) {
 
   // Get the current player's actual production value from game state
   const currentPlayer = players.find((p) => p._id === currentPlayerId);
-  const actualProduction = currentPlayer
-    ? currentPlayer.production
-    : resourceValue;
-
+  //   const actualProduction = currentPlayer
+  //     ? currentPlayer.production
+  //     : resourceValue;
+  const actualProduction = resourceValue;
   useEffect(() => {
     // Clear any existing animation
     if (animationRef.current) {
@@ -73,7 +73,7 @@ export default function ResourceBar({ resourceValue, icon }) {
   }, []); // Empty dependency array means it only runs once on mount
 
   return (
-    <div className="resource-bar p-2 text-white rounded">
+    <div className="resource-bar p-2 text-white rounded w-16">
       <span>
         <span className="text-yellow-400 mr-1">{icon}</span> {displayValue}
       </span>

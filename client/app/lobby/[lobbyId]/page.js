@@ -3,11 +3,12 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Header from "@/components/Header";
-import { Users, Swords, Crown, Play, User } from "lucide-react";
+import { Swords, Crown, Play, User } from "lucide-react";
 import io from "socket.io-client";
 import { useGameState } from "@/components/gameState";
 import { useAuth } from "@/components/AuthContext";
 import LoadingScreen from "@/components/LoadingScreen";
+import ColorDropdown from "@/components/ColorDropdown";
 
 export default function LobbyRoom() {
   const router = useRouter();
@@ -52,6 +53,19 @@ export default function LobbyRoom() {
       socketRef.current.on("lobbyUpdate", (data) => {
         setPlayers(data.players);
         setMessage(data.message);
+      });
+
+      socketRef.current.on("colorSelectionError", (data) => {
+        setMessage(data.message);
+      });
+
+      socketRef.current.on("playerStateSync", (data) => {
+        // Update message
+        setMessage(data.message);
+
+        // If there's updated state for the current player, we can update UI accordingly
+        // This is handled automatically through the lobbyUpdate event, so we don't need
+        // additional state management here
       });
 
       socketRef.current.on("gameStarted", (data) => {
@@ -100,6 +114,20 @@ export default function LobbyRoom() {
         setLocalLoading(false);
       });
   }, [lobbyId, router]);
+
+  const handleColorSelect = (colorValue) => {
+    if (!socketRef.current || !user) return;
+
+    socketRef.current.emit("selectColor", {
+      lobbyId,
+      _id: user._id,
+      colorValue,
+    });
+  };
+
+  const getTakenColors = () => {
+    return players.map((player) => player.color?.value).filter(Boolean);
+  };
 
   const handleStartGame = async () => {
     try {
@@ -201,9 +229,18 @@ export default function LobbyRoom() {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span className="text-sm text-neutral-400">Ready</span>
+                  <div className="flex items-center gap-4">
+                    {/* Add Color Dropdown */}
+                    <ColorDropdown
+                      selectedColor={player.color?.value}
+                      onColorSelect={handleColorSelect}
+                      takenColors={getTakenColors()}
+                      isCurrentUser={user && player._id === user._id}
+                    />
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      <span className="text-sm text-neutral-400">Ready</span>
+                    </div>
                   </div>
                 </div>
               ))}

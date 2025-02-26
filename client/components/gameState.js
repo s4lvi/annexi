@@ -21,7 +21,8 @@ const initialState = {
   structures: [], // defensive structures on the map
   armies: [], // armies queued for attack
   availableCards: {}, // cards available for purchase
-  targetCity: null, // selected enemy city target
+  targetCity: null,
+  lastUpdate: Date.now(), // selected enemy city target
 };
 
 // Update the reducer with new action types
@@ -53,6 +54,8 @@ function gameReducer(state, action) {
         placingStructure: action.payload,
         selectedStructure: action.payload ? state.selectedStructure : null,
       };
+    case "SET_LAST_UPDATE":
+      return { ...state, lastUpdate: action.payload };
 
     case "SET_SELECTED_STRUCTURE":
       return { ...state, selectedStructure: action.payload };

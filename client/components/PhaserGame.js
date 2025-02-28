@@ -4,9 +4,48 @@ import * as Phaser from "phaser";
 import ControlsManager from "./ControlsManager";
 import { useGameState } from "./gameState";
 import HexTileHighlighter from "./HexTileHighlighter";
-import { validateCityPlacement, validateStructurePlacement } from "./PhaseUi";
 
-export default function PhaserGame({ mapData, matchId, onMapClick }) {
+// Validation functions remain unchanged...
+export const validateCityPlacement = (tile, state) => {
+  if (tile.type !== "grass") return false;
+  const { players, currentPlayerId, territories } = state;
+  const currentPlayer = players.find((p) => p._id === currentPlayerId);
+  if (
+    !currentPlayer ||
+    !territories[currentPlayerId] ||
+    territories[currentPlayerId].length === 0
+  ) {
+    return true;
+  }
+  const playerTerritory = territories[currentPlayerId] || [];
+  return playerTerritory.some((t) => t.x === tile.x && t.y === tile.y);
+};
+
+export const validateStructurePlacement = (tile, state) => {
+  if (tile.type !== "grass") return false;
+  const { players, currentPlayerId, territories } = state;
+  const currentPlayer = players.find((p) => p._id === currentPlayerId);
+  if (
+    !currentPlayer ||
+    !territories[currentPlayerId] ||
+    territories[currentPlayerId].length === 0
+  ) {
+    return true;
+  }
+  const playerTerritory = territories[currentPlayerId] || [];
+  return playerTerritory.some((t) => t.x === tile.x && t.y === tile.y);
+};
+
+const validateTargetSelection = (tile, currentPlayerId) => {
+  return true;
+};
+
+export default function PhaserGame({
+  mapData,
+  matchId,
+  onMapClick,
+  toggleUiVisibility,
+}) {
   const gameRef = useRef(null);
   const hasInitialized = useRef(false);
   const { state, dispatch } = useGameState();
@@ -83,10 +122,26 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
     const offsetX = (window.innerWidth - totalWidth) / 2;
     const offsetY = (window.innerHeight - totalHeight) / 2;
 
+    const setGameSize = () => {
+      // Use visualViewport if available (more accurate on mobile)
+      const viewportWidth = window.visualViewport
+        ? window.visualViewport.width
+        : window.innerWidth;
+      const viewportHeight = window.visualViewport
+        ? window.visualViewport.height
+        : window.innerHeight;
+
+      if (gameRef.current) {
+        gameRef.current.scale.resize(viewportWidth, viewportHeight);
+      }
+      return { width: viewportWidth, height: viewportHeight };
+    };
+
+    const { width, height } = setGameSize();
     const config = {
       type: Phaser.AUTO,
-      width: window.innerWidth,
-      height: window.innerHeight,
+      width: width,
+      height: height,
       parent: "phaser-game",
       scene: {
         preload: function () {
@@ -175,7 +230,11 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
             }
           }
 
-          const controlsManager = new ControlsManager(this, onMapClick);
+          const controlsManager = new ControlsManager(
+            this,
+            onMapClick,
+            toggleUiVisibility
+          );
           controlsManager.register();
 
           // Update highlight on pointermove based on turnStep.
@@ -203,12 +262,21 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
     const game = new Phaser.Game(config);
     gameRef.current = game;
     const handleResize = () => {
-      game.scale.resize(window.innerWidth, window.innerHeight);
+      setGameSize();
     };
     window.addEventListener("resize", handleResize);
+    window.visualViewport?.addEventListener("resize", handleResize);
+    window.visualViewport?.addEventListener("scroll", handleResize);
+    window.addEventListener("orientationchange", () => {
+      // Small delay to ensure dimensions are updated after orientation change
+      setTimeout(handleResize, 100);
+    });
 
     return () => {
       window.removeEventListener("resize", handleResize);
+      window.visualViewport?.removeEventListener("resize", handleResize);
+      window.visualViewport?.removeEventListener("scroll", handleResize);
+      window.removeEventListener("orientationchange", handleResize);
     };
   }, [
     mapData,
@@ -217,6 +285,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
     state.turnStep,
     state.placingCity,
     state.placingStructure,
+    toggleUiVisibility,
   ]);
 
   // Helper function to format image name
@@ -242,6 +311,22 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
     }
     return Promise.resolve(true);
   };
+
+  useEffect(() => {
+    // Prevent document body scrolling when component mounts
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+    document.documentElement.style.overflow = "hidden";
+    document.documentElement.style.touchAction = "none";
+
+    // Restore on cleanup
+    return () => {
+      document.body.style.overflow = "";
+      document.body.style.touchAction = "";
+      document.documentElement.style.overflow = "";
+      document.documentElement.style.touchAction = "";
+    };
+  }, []);
 
   // Update Phaser scene registry and render cities and territories
   useEffect(() => {

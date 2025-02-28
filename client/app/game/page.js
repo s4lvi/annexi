@@ -44,6 +44,12 @@ export default function GameContainer() {
   const socketInitializedRef = useRef(false);
   const currentUserRef = useRef(null);
   const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [uiVisible, setUiVisible] = useState(true);
+  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
+  const toggleUiVisibility = (visible) => {
+    console.log("Toggling UI visibility to:", visible);
+    setUiVisible(visible);
+  };
 
   const toggleInventory = () => {
     setInventoryOpen((prev) => !prev);
@@ -390,23 +396,29 @@ export default function GameContainer() {
         mapData={mapData}
         matchId={queryLobbyId}
         onMapClick={handleMapClick}
+        toggleUiVisibility={toggleUiVisibility}
       />
-      <TurnUI
-        ref={turnUIRef}
-        onCityPlacement={handleCityPlacement}
-        onCardSelected={handleCardSelected}
-        onStructurePlacement={handleStructurePlacement}
-        onTargetSelected={(tileInfo) =>
-          console.log("Target selected:", tileInfo)
-        }
-        onArmyQueued={(queuedCards) =>
-          console.log("Armies queued:", queuedCards)
-        }
-      />
-      <div className="absolute top-5 right-1/2 z-10">
-        <button onClick={toggleInventory} className="bg-gray-900 p-2 rounded">
-          <CreditCard color="white" size={24} />
-        </button>
+      <div
+        style={{
+          visibility: uiVisible ? "visible" : "hidden",
+          opacity: uiVisible ? 1 : 0,
+          transition: "opacity 300ms ease-in-out",
+          pointerEvents: uiVisible ? "auto" : "none",
+        }}
+      >
+        <TurnUI
+          ref={turnUIRef}
+          onCityPlacement={handleCityPlacement}
+          onCardSelected={handleCardSelected}
+          onStructurePlacement={handleStructurePlacement}
+          onTargetSelected={(tileInfo) =>
+            console.log("Target selected:", tileInfo)
+          }
+          onArmyQueued={(queuedCards) =>
+            console.log("Armies queued:", queuedCards)
+          }
+          uiVisible={uiVisible}
+        />
       </div>
       <CardInventoryModal
         isOpen={inventoryOpen}
@@ -416,41 +428,49 @@ export default function GameContainer() {
           []
         }
       />
-      <div className="absolute top-5 bg-gray-900 rounded right-5 z-10 flex flex-row">
-        <ResourceBar
-          resourceValue={currentPlayer?.production || 0}
-          icon={"⚙️"}
-          title="production"
-        />
-        <ResourceBar
-          resourceValue={currentPlayer?.gold || 0}
-          icon={"💰"}
-          title="gold"
-        />
-        <ResourceBar
-          resourceValue={currentPlayer?.iron || 0}
-          icon={"🔗"}
-          title="iron"
-        />
-        <ResourceBar
-          resourceValue={currentPlayer?.wood || 0}
-          icon={"🪵"}
-          title="wood"
-        />
-        <ResourceBar
-          resourceValue={currentPlayer?.stone || 0}
-          icon={"🪨"}
-          title="stone"
-        />
-        <ResourceBar
-          resourceValue={currentPlayer?.horses || 0}
-          icon={"🐎"}
-          title="horses"
-        />
+      <div className="mobile-scale-resources">
+        <div className="absolute top-5 right-1/2 z-10">
+          <button onClick={toggleInventory} className="bg-gray-900 p-2 rounded">
+            <CreditCard color="white" size={24} />
+          </button>
+        </div>
+        <div className="absolute top-5 bg-gray-900 rounded right-5 z-10 flex flex-row">
+          <ResourceBar
+            resourceValue={currentPlayer?.production || 0}
+            icon={"⚙️"}
+            title="production"
+          />
+          <ResourceBar
+            resourceValue={currentPlayer?.gold || 0}
+            icon={"💰"}
+            title="gold"
+          />
+          <ResourceBar
+            resourceValue={currentPlayer?.iron || 0}
+            icon={"🔗"}
+            title="iron"
+          />
+          <ResourceBar
+            resourceValue={currentPlayer?.wood || 0}
+            icon={"🪵"}
+            title="wood"
+          />
+          <ResourceBar
+            resourceValue={currentPlayer?.stone || 0}
+            icon={"🪨"}
+            title="stone"
+          />
+          <ResourceBar
+            resourceValue={currentPlayer?.horses || 0}
+            icon={"🐎"}
+            title="horses"
+          />
+        </div>
+        <div className="absolute top-16 right-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
+          {message && <p>{message}</p>}
+        </div>
       </div>
-      <div className="absolute top-16 right-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
-        {message && <p>{message}</p>}
-      </div>
+
       <ReadyButton
         isReady={currentPlayerReady}
         onClick={handleGlobalReady}

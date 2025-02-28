@@ -66,11 +66,39 @@
     }
   }
 }
+html, body {
+  width: 100%;
+  height: 100%;
+}
+
 
 /* Base styles */
 body {
   color: rgb(var(--foreground));
   background-image: url("/map.png")
+}
+
+@media (max-width: 600px) {
+  .mobile-scale-container {
+    position: absolute;
+    transform: scale(0.5);
+    bottom: 10%;
+    left: -50%;
+    width: 200vw;
+    display: inline-block; 
+    overflow: visible;
+  }
+
+  .mobile-scale-resources {
+    position: absolute;
+    transform: scale(0.5);
+    top: 0;
+    left: -50%;
+    width: 200vw;
+    display: inline-block; 
+    overflow: visible;
+  }
+
 }
 
 /* Custom utility classes */

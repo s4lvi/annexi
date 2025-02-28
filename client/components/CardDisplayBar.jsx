@@ -71,41 +71,43 @@ export default function CardDisplayBar({
   };
 
   return (
-    <div className="absolute bottom-0 left-0 w-full z-20">
-      {/* Cards container with horizontal scrolling */}
-      {children && (
-        <div
-          ref={cardContainerRef}
-          className="p-4 overflow-x-auto"
-          onMouseDown={handleMouseDown}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseLeave}
-          onMouseMove={handleMouseMove}
-        >
-          <div className="flex gap-4 px-2 py-20 min-h-[120px] items-center">
-            {React.Children.map(children, (child) => (
-              <div
-                onClick={(e) => {
-                  // If we're dragging, prevent the click
-                  if (isDragging) {
-                    e.stopPropagation();
-                  }
-                }}
-              >
-                {child}
-              </div>
-            ))}
+    <div className="mobile-scale-container">
+      <div className="absolute bottom-0 left-0 w-full z-20">
+        {/* Cards container with horizontal scrolling */}
+        {children && (
+          <div
+            ref={cardContainerRef}
+            className="p-4 overflow-x-auto"
+            onMouseDown={handleMouseDown}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseLeave}
+            onMouseMove={handleMouseMove}
+          >
+            <div className="flex gap-4 px-2 py-20 min-h-[120px] items-center">
+              {React.Children.map(children, (child) => (
+                <div
+                  onClick={(e) => {
+                    // If we're dragging, prevent the click
+                    if (isDragging) {
+                      e.stopPropagation();
+                    }
+                  }}
+                >
+                  {child}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Title bar */}
-      <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-black to-transparent py-6 pt-20 px-4 flex justify-between items-center">
-        <div>
-          <h3 className="text-xl font-bold text-white">{title}</h3>
-          {message && <p className="text-white text-sm">{message}</p>}
+        {/* Title bar */}
+        <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-black to-transparent py-6 pt-20 px-4 flex justify-between items-center">
+          <div>
+            <h3 className="text-xl font-bold text-white">{title}</h3>
+            {message && <p className="text-white text-sm">{message}</p>}
+          </div>
+          {rightContent && <div>{rightContent}</div>}
         </div>
-        {rightContent && <div>{rightContent}</div>}
       </div>
     </div>
   );

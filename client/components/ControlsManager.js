@@ -1,9 +1,9 @@
 export default class ControlsManager {
-  constructor(scene, onMapClick) {
+  constructor(scene, onMapClick, toggleUiVisibility) {
     this.scene = scene;
     this.onMapClick = onMapClick;
+    this.toggleUiVisibility = toggleUiVisibility;
     this.isPanning = false;
-    this.isMiddleButtonPanning = false;
     this.previousDistance = null; // Track previous distance for pinch zoom
   }
 
@@ -33,62 +33,27 @@ export default class ControlsManager {
     scene.input.on("pointerup", this.onPointerUp, this);
     // Still listen for wheel events for desktop zooming
     scene.input.on("wheel", this.onWheel, this);
-
-    // Add global event listeners for middle mouse button to ensure it's always captured
-    // This is important because middle mouse clicks might not always reach the canvas
-    window.addEventListener("mousedown", this.onGlobalMouseDown.bind(this));
-    window.addEventListener("mousemove", this.onGlobalMouseMove.bind(this));
-    window.addEventListener("mouseup", this.onGlobalMouseUp.bind(this));
-  }
-
-  onGlobalMouseDown(e) {
-    if (e.button === 1) {
-      // Middle button
-      this.isMiddleButtonPanning = true;
-      document.body.style.cursor = "grabbing";
-
-      // Capture panning start position
-      this.panStartX = e.clientX;
-      this.panStartY = e.clientY;
-      this.cameraStartX = this.scene.cameras.main.scrollX;
-      this.cameraStartY = this.scene.cameras.main.scrollY;
-
-      // Prevent default middle-click scrolling behavior
-      e.preventDefault();
-    }
-  }
-
-  onGlobalMouseMove(e) {
-    if (this.isMiddleButtonPanning) {
-      const dx = e.clientX - this.panStartX;
-      const dy = e.clientY - this.panStartY;
-      const newX = this.cameraStartX - dx / this.scene.cameras.main.zoom;
-      const newY = this.cameraStartY - dy / this.scene.cameras.main.zoom;
-      this.scene.cameras.main.scrollX = newX;
-      this.scene.cameras.main.scrollY = newY;
-
-      // Prevent default
-      e.preventDefault();
-    }
-  }
-
-  onGlobalMouseUp(e) {
-    if (e.button === 1) {
-      this.isMiddleButtonPanning = false;
-
-      // Reset cursor based on current game state
-      const gameState = this.scene.registry.get("gameState");
-      if (gameState?.placingCity || gameState?.placingStructure) {
-        document.body.style.cursor = "crosshair";
-      } else {
-        document.body.style.cursor = "default";
-      }
-    }
   }
 
   onPointerDown(pointer) {
-    // If middle mouse is active globally, don't process further
-    if (this.isMiddleButtonPanning) return;
+    // Check if we're placing a city or structure
+    const gameState = this.scene.registry.get("gameState");
+    const isPlacing = gameState?.placingCity || gameState?.placingStructure;
+
+    // Handle middle mouse button for panning
+    if (pointer.middleButtonDown()) {
+      document.body.style.cursor = "grabbing";
+      this.startPan(pointer);
+      // Hide the UI when starting to pan with middle mouse
+      this.toggleUiVisibility(false);
+      return;
+    }
+
+    // For placement actions, we want to see the map clearly
+    if (isPlacing) {
+      // Hide UI when placing city/structure
+      this.toggleUiVisibility(false);
+    }
 
     // Check if the click is on a UI element
     const element = document.elementFromPoint(pointer.x, pointer.y);
@@ -106,24 +71,23 @@ export default class ControlsManager {
       this.onMapClick(tile);
     }
 
-    // Capture right-click events for any additional functionality
+    // Capture right-click events
     if (pointer.rightButtonDown()) {
       const tile = this.getTileAt(pointer.x, pointer.y);
       console.log("Right-click at", pointer.x, pointer.y, tile);
       return;
     }
 
-    // Start panning with left button if not multi-touch
+    // Start panning with left button
     if (pointer.leftButtonDown() && !this.isMultiTouchActive()) {
       this.startPan(pointer);
+      // Hide the UI when starting to pan
+      this.toggleUiVisibility(false);
     }
   }
 
   onPointerMove(pointer) {
-    // If middle mouse is active globally, don't process further
-    if (this.isMiddleButtonPanning) return;
-
-    // Check for multi-touch (pinch zoom)
+    // Check for multi-touch (pinch zoom) first
     const activePointers = this.scene.input.manager.pointers.filter(
       (p) => p.isDown
     );
@@ -138,24 +102,43 @@ export default class ControlsManager {
 
       if (this.previousDistance !== null) {
         const distanceDelta = currentDistance - this.previousDistance;
-        const zoomFactor = 0.005;
+        const zoomFactor = 0.005; // Adjust zoom sensitivity as needed
         let newZoom = this.scene.cameras.main.zoom + distanceDelta * zoomFactor;
         newZoom = Phaser.Math.Clamp(newZoom, 0.5, 2);
         this.scene.cameras.main.setZoom(newZoom);
       }
       this.previousDistance = currentDistance;
+      // If pinch zoom is active, don't process panning.
       return;
     } else {
       this.previousDistance = null;
     }
 
-    // Process normal panning if active
+    // Process panning
     if (this.isPanning) {
       this.updatePan(pointer);
     }
   }
 
   onPointerUp(pointer) {
+    // Check if we need to keep UI hidden for placement mode
+    const gameState = this.scene.registry.get("gameState");
+    const isPlacing = gameState?.placingCity || gameState?.placingStructure;
+
+    // Reset cursor to default or crosshair based on game state
+    if (document.body.style.cursor === "grabbing") {
+      if (isPlacing) {
+        document.body.style.cursor = "crosshair";
+      } else {
+        document.body.style.cursor = "default";
+      }
+    }
+
+    // If panning is ending and we're not in placement mode, show the UI again
+    if (this.isPanning && !isPlacing) {
+      this.toggleUiVisibility(true);
+    }
+
     // Reset pinch zoom tracking
     const activePointers = this.scene.input.manager.pointers.filter(
       (p) => p.isDown
@@ -164,7 +147,6 @@ export default class ControlsManager {
       this.previousDistance = null;
     }
 
-    // End left-button panning if active
     if (this.isPanning) {
       this.endPan();
     }
@@ -210,7 +192,7 @@ export default class ControlsManager {
     const worldX = worldPoint.x;
     const worldY = worldPoint.y;
 
-    // Retrieve offsets from the registry
+    // Retrieve offsets from the registry.
     const offsetX = this.scene.registry.get("offsetX") || 0;
     const offsetY = this.scene.registry.get("offsetY") || 0;
     const hexRadius = 20;
@@ -220,19 +202,24 @@ export default class ControlsManager {
     const effectiveX = worldX - offsetX;
     const effectiveY = worldY - offsetY;
 
-    // Compute grid coordinates
+    // Compute grid coordinates.
     const approxCol = Math.round((effectiveX - hexRadius) / (hexWidth * 0.75));
     const offsetYForCol = approxCol % 2 ? hexHeight / 2 : 0;
     const approxRow = Math.round(
       (effectiveY - hexHeight / 2 - offsetYForCol) / hexHeight
     );
 
-    // Get map data
+    // Retrieve mapData stored in the registry
     const mapData = this.scene.registry.get("mapData");
     let tile = { col: approxCol, row: approxRow, type: "unknown" };
     if (mapData && mapData[approxRow] && mapData[approxRow][approxCol]) {
       tile = { ...tile, ...mapData[approxRow][approxCol] };
     }
     return tile;
+  }
+
+  // Clean up
+  destroy() {
+    // No additional cleanup needed for this approach
   }
 }

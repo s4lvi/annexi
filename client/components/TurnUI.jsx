@@ -1,7 +1,10 @@
 // TurnUI.jsx
 import React, { forwardRef, useImperativeHandle } from "react";
 import { useGameState } from "./gameState";
-import { validateCityPlacement, validateStructurePlacement } from "./PhaseUi";
+import {
+  validateCityPlacement,
+  validateStructurePlacement,
+} from "./PhaserGame";
 
 // These components should render the UI for each turn step.
 import CityPlacementUI from "./CityPlacementUI"; // Step 0: Collect resources & place city

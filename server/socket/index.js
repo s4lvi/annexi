@@ -67,14 +67,21 @@ const baseDeckDefinition = [
 ];
 
 const PLAYER_COLORS = [
-  { name: "Red", value: 0xed6a5a },
-  { name: "Teal", value: 0x5ca4a9 },
-  { name: "Yellow", value: 0xe6af2e },
-  { name: "Purple", value: 0x9370db },
-  { name: "Navy", value: 0x3d405b },
-  { name: "Sage", value: 0x81b29a },
-  { name: "Orange", value: 0xf4845f },
-  { name: "Slate", value: 0x706677 },
+  { name: "Red", value: 0xed6a5a, hexString: "#ed6a5a" },
+  { name: "Teal", value: 0x5ca4a9, hexString: "#5ca4a9" },
+  { name: "Yellow", value: 0xe6af2e, hexString: "#e6af2e" },
+  { name: "Purple", value: 0x9370db, hexString: "#9370db" },
+  { name: "Pink", value: 0xcf7cc1, hexString: "#cf7cc1" },
+  { name: "Brown", value: 0x4f3406, hexString: "#4f3406" },
+  { name: "Gray", value: 0x808080, hexString: "#808080" },
+  { name: "Navy", value: 0x3d405b, hexString: "#3d405b" },
+  { name: "Sage", value: 0x81b29a, hexString: "#81b29a" },
+  { name: "Orange", value: 0xf4845f, hexString: "#f4845f" },
+  { name: "Slate", value: 0x706677, hexString: "#706677" },
+  { name: "Olive", value: 0x8d8741, hexString: "#8d8741" },
+  { name: "Coral", value: 0x7b9c91, hexString: "#7b9c91" },
+  { name: "Mint", value: 0xc7e9b0, hexString: "#c7e9b0" },
+  { name: "Lavender", value: 0xe6e6fa, hexString: "#E6E6FA" },
 ];
 
 const PHASES = {
@@ -119,7 +126,6 @@ function initLobby(lobbyId) {
     players: [],
     occupiedTiles: new Set(),
     timer: null,
-    phase: PHASES.EXPAND,
     pendingCities: [],
     playerTerritories: {},
     tileOwnership: {},
@@ -156,12 +162,6 @@ function startNewTurn(lobbyId, io) {
       io.to(player.socketId).emit("handDealt", { hand: player.currentHand });
     }
   });
-  // Emit phaseChange for expand phase.
-  io.to(`lobby-${lobbyId}`).emit("phaseChange", {
-    phase: PHASES.EXPAND,
-    message: "New turn started! Resources collected.",
-    waiting: false,
-  });
   console.log(`Resources collected for lobby ${lobbyId} at turn start.`);
   // Emit game state update with grouped cards from baseDeckDefinition.
   const groupedCards = {
@@ -176,7 +176,7 @@ function startNewTurn(lobbyId, io) {
     effects: baseDeckDefinition.filter((card) => card.type === "effect"),
   };
   io.to(`lobby-${lobbyId}`).emit("gameStateUpdate", {
-    phase: PHASES.EXPAND,
+    turnStep: lobby.turnStep,
     players: lobby.players,
     message: "Game state refreshed for new turn",
   });
@@ -282,22 +282,11 @@ function advancePhase(lobbyId, io) {
     case PHASES.EXPAND:
       // Transition from expansion to conquer.
       lobby.phase = PHASES.CONQUER;
-      io.to(`lobby-${lobbyId}`).emit("phaseChange", {
-        phase: PHASES.CONQUER,
-        message: "Phase moved to conquer. Territory expansion starting...",
-        waiting: false,
-      });
       startTerritoryExpansion(lobbyId, io);
       break;
     case PHASES.CONQUER:
       // Transition from conquer to resolution.
       lobby.phase = PHASES.RESOLUTION;
-      io.to(`lobby-${lobbyId}`).emit("phaseChange", {
-        phase: PHASES.RESOLUTION,
-        message: "Phase moved to resolution. Battle simulation starting...",
-        waiting: true,
-        waitDuration: 1000,
-      });
       // Delay for battle resolution then start a new turn.
       setTimeout(() => {
         lobby.phase = PHASES.EXPAND;
@@ -306,12 +295,6 @@ function advancePhase(lobbyId, io) {
           player.currentPhase = PHASES.EXPAND;
         });
         startNewTurn(lobbyId, io);
-        io.to(`lobby-${lobbyId}`).emit("phaseChange", {
-          phase: PHASES.EXPAND,
-          message:
-            "New turn started! Expansion phase - collect resources and build.",
-          waiting: false,
-        });
         lobby.pendingCities = [];
         // Reset readiness flags for both phases at the start of a new turn.
         lobby.players = lobby.players.map((player) => ({
@@ -779,7 +762,7 @@ module.exports = function (io) {
       const fullState = {
         mapData: lobby.mapData,
         players: getSafePlayers(lobby.players),
-        phase: lobby.phase,
+        turnStep: lobby.turnStep,
         cards: {
           deck: player.deck,
           inventory: player.inventory,
@@ -808,12 +791,9 @@ module.exports = function (io) {
 
       socket.emit("fullStateUpdate", fullState);
     });
-    socket.on("stepCompleted", (data) => {
-      dispatch({ type: "SET_TURN_STEP", payload: data.turnStep });
-      dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: false });
-    });
+
     socket.on("playerReady", (data) => {
-      const { lobbyId, username, _id, turnStep } = data;
+      const { lobbyId, username, _id } = data;
       const lobby = lobbies[lobbyId];
       if (!lobby) return;
 
@@ -823,27 +803,45 @@ module.exports = function (io) {
       player.readyForStep = true;
 
       io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
-        players: getSafePlayers(lobbies[lobbyId].players),
-        message: `${username} is ready for step ${turnStep}.`,
+        players: getSafePlayers(lobby.players),
+        message: `${username} is ready for step ${lobby.turnStep}.`,
       });
 
-      // Check if all players are ready.
+      // Check if all players are ready for the current turnStep.
       const allReady = lobby.players.every((p) => p.readyForStep);
       if (allReady) {
-        // Reset all players' ready flags.
+        // Reset each player's ready flag.
         lobby.players.forEach((p) => (p.readyForStep = false));
-        // Advance the turn step.
-        lobby.turnStep =
-          lobby.turnStep < 6 ? lobby.turnStep + 1 : lobby.turnStep;
-        io.to(`lobby-${lobbyId}`).emit("stepCompleted", {
-          turnStep: lobby.turnStep,
-        });
 
-        // If we're still in the EXPAND phase and turnStep is greater than 1 (i.e. after card purchasing),
-        // automatically advance the phase.
-        if (lobby.phase === PHASES.EXPAND && lobby.turnStep > 1) {
-          console.log("All players ready in EXPAND phase, advancing phase.");
-          advancePhase(lobbyId, io);
+        if (lobby.turnStep < 6) {
+          // Advance to the next step.
+          lobby.turnStep++;
+          io.to(`lobby-${lobbyId}`).emit("stepCompleted", {
+            turnStep: lobby.turnStep,
+          });
+
+          // At step 2, start territory expansion.
+          if (lobby.turnStep === 2) {
+            console.log(
+              "All players ready for step 2: starting territory expansion."
+            );
+            startTerritoryExpansion(lobbyId, io);
+          }
+        } else {
+          // turnStep === 6: battle phase. Emit completion and then, after a delay, reset for a new turn.
+          io.to(`lobby-${lobbyId}`).emit("stepCompleted", {
+            turnStep: lobby.turnStep,
+          });
+          console.log(
+            "All players ready for step 6: battle phase. Resolving battle..."
+          );
+          // (Insert any battle simulation logic here if desired.)
+          setTimeout(() => {
+            // After battle resolution, reset the turn.
+            lobby.turnStarted = false;
+            lobby.turnStep = 0;
+            startNewTurn(lobbyId, io);
+          }, 1000);
         }
       }
     });

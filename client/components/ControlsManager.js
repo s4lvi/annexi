@@ -3,6 +3,7 @@ export default class ControlsManager {
     this.scene = scene;
     this.onMapClick = onMapClick;
     this.isPanning = false;
+    this.isMiddleButtonPanning = false;
     this.previousDistance = null; // Track previous distance for pinch zoom
   }
 
@@ -32,41 +33,97 @@ export default class ControlsManager {
     scene.input.on("pointerup", this.onPointerUp, this);
     // Still listen for wheel events for desktop zooming
     scene.input.on("wheel", this.onWheel, this);
+
+    // Add global event listeners for middle mouse button to ensure it's always captured
+    // This is important because middle mouse clicks might not always reach the canvas
+    window.addEventListener("mousedown", this.onGlobalMouseDown.bind(this));
+    window.addEventListener("mousemove", this.onGlobalMouseMove.bind(this));
+    window.addEventListener("mouseup", this.onGlobalMouseUp.bind(this));
+  }
+
+  onGlobalMouseDown(e) {
+    if (e.button === 1) {
+      // Middle button
+      this.isMiddleButtonPanning = true;
+      document.body.style.cursor = "grabbing";
+
+      // Capture panning start position
+      this.panStartX = e.clientX;
+      this.panStartY = e.clientY;
+      this.cameraStartX = this.scene.cameras.main.scrollX;
+      this.cameraStartY = this.scene.cameras.main.scrollY;
+
+      // Prevent default middle-click scrolling behavior
+      e.preventDefault();
+    }
+  }
+
+  onGlobalMouseMove(e) {
+    if (this.isMiddleButtonPanning) {
+      const dx = e.clientX - this.panStartX;
+      const dy = e.clientY - this.panStartY;
+      const newX = this.cameraStartX - dx / this.scene.cameras.main.zoom;
+      const newY = this.cameraStartY - dy / this.scene.cameras.main.zoom;
+      this.scene.cameras.main.scrollX = newX;
+      this.scene.cameras.main.scrollY = newY;
+
+      // Prevent default
+      e.preventDefault();
+    }
+  }
+
+  onGlobalMouseUp(e) {
+    if (e.button === 1) {
+      this.isMiddleButtonPanning = false;
+
+      // Reset cursor based on current game state
+      const gameState = this.scene.registry.get("gameState");
+      if (gameState?.placingCity || gameState?.placingStructure) {
+        document.body.style.cursor = "crosshair";
+      } else {
+        document.body.style.cursor = "default";
+      }
+    }
   }
 
   onPointerDown(pointer) {
-    // Check if the click is on a UI element:
+    // If middle mouse is active globally, don't process further
+    if (this.isMiddleButtonPanning) return;
+
+    // Check if the click is on a UI element
     const element = document.elementFromPoint(pointer.x, pointer.y);
     if (
       element &&
       element.tagName.toLowerCase() !== "canvas" &&
       !element.closest("#phaser-game")
     ) {
-      console.log("UI element clicked:", element);
-      return; // Let the UI handle this event.
+      return; // Let the UI handle this event
     }
 
-    if (this.onMapClick) {
+    // Handle left click for map interaction
+    if (pointer.leftButtonDown() && this.onMapClick) {
       const tile = this.getTileAt(pointer.x, pointer.y);
       this.onMapClick(tile);
     }
 
-    // Capture right-click events.
+    // Capture right-click events for any additional functionality
     if (pointer.rightButtonDown()) {
       const tile = this.getTileAt(pointer.x, pointer.y);
       console.log("Right-click at", pointer.x, pointer.y, tile);
-      // Add right-click logic here.
       return;
     }
 
-    // Start panning only if not doing a multi-touch gesture.
-    if (!this.isMultiTouchActive()) {
+    // Start panning with left button if not multi-touch
+    if (pointer.leftButtonDown() && !this.isMultiTouchActive()) {
       this.startPan(pointer);
     }
   }
 
   onPointerMove(pointer) {
-    // Check for multi-touch (pinch zoom) first
+    // If middle mouse is active globally, don't process further
+    if (this.isMiddleButtonPanning) return;
+
+    // Check for multi-touch (pinch zoom)
     const activePointers = this.scene.input.manager.pointers.filter(
       (p) => p.isDown
     );
@@ -81,32 +138,33 @@ export default class ControlsManager {
 
       if (this.previousDistance !== null) {
         const distanceDelta = currentDistance - this.previousDistance;
-        const zoomFactor = 0.005; // Adjust zoom sensitivity as needed
+        const zoomFactor = 0.005;
         let newZoom = this.scene.cameras.main.zoom + distanceDelta * zoomFactor;
         newZoom = Phaser.Math.Clamp(newZoom, 0.5, 2);
         this.scene.cameras.main.setZoom(newZoom);
       }
       this.previousDistance = currentDistance;
-      // If pinch zoom is active, don't process panning.
       return;
     } else {
       this.previousDistance = null;
     }
 
-    // If not multi-touch, process panning.
+    // Process normal panning if active
     if (this.isPanning) {
       this.updatePan(pointer);
     }
   }
 
   onPointerUp(pointer) {
-    // Reset pinch zoom tracking when fingers are lifted.
+    // Reset pinch zoom tracking
     const activePointers = this.scene.input.manager.pointers.filter(
       (p) => p.isDown
     );
     if (activePointers.length < 2) {
       this.previousDistance = null;
     }
+
+    // End left-button panning if active
     if (this.isPanning) {
       this.endPan();
     }
@@ -152,7 +210,7 @@ export default class ControlsManager {
     const worldX = worldPoint.x;
     const worldY = worldPoint.y;
 
-    // Retrieve offsets from the registry.
+    // Retrieve offsets from the registry
     const offsetX = this.scene.registry.get("offsetX") || 0;
     const offsetY = this.scene.registry.get("offsetY") || 0;
     const hexRadius = 20;
@@ -162,14 +220,14 @@ export default class ControlsManager {
     const effectiveX = worldX - offsetX;
     const effectiveY = worldY - offsetY;
 
-    // Compute grid coordinates.
+    // Compute grid coordinates
     const approxCol = Math.round((effectiveX - hexRadius) / (hexWidth * 0.75));
     const offsetYForCol = approxCol % 2 ? hexHeight / 2 : 0;
     const approxRow = Math.round(
       (effectiveY - hexHeight / 2 - offsetYForCol) / hexHeight
     );
 
-    // Retrieve mapData stored in the registry (set it in PhaserGame's create).
+    // Get map data
     const mapData = this.scene.registry.get("mapData");
     let tile = { col: approxCol, row: approxRow, type: "unknown" };
     if (mapData && mapData[approxRow] && mapData[approxRow][approxCol]) {

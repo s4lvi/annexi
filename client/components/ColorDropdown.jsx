@@ -2,14 +2,21 @@
 import React from "react";
 
 const PLAYER_COLORS = [
-  { name: "Red", value: 0xed6a5a },
-  { name: "Teal", value: 0x5ca4a9 },
-  { name: "Yellow", value: 0xe6af2e },
-  { name: "Purple", value: 0x9370db },
-  { name: "Navy", value: 0x3d405b },
-  { name: "Sage", value: 0x81b29a },
-  { name: "Orange", value: 0xf4845f },
-  { name: "Slate", value: 0x706677 },
+  { name: "Red", value: 0xed6a5a, hexString: "#ed6a5a" },
+  { name: "Teal", value: 0x5ca4a9, hexString: "#5ca4a9" },
+  { name: "Yellow", value: 0xe6af2e, hexString: "#e6af2e" },
+  { name: "Purple", value: 0x9370db, hexString: "#9370db" },
+  { name: "Pink", value: 0xcf7cc1, hexString: "#cf7cc1" },
+  { name: "Brown", value: 0x4f3406, hexString: "#4f3406" },
+  { name: "Gray", value: 0x808080, hexString: "#808080" },
+  { name: "Navy", value: 0x3d405b, hexString: "#3d405b" },
+  { name: "Sage", value: 0x81b29a, hexString: "#81b29a" },
+  { name: "Orange", value: 0xf4845f, hexString: "#f4845f" },
+  { name: "Slate", value: 0x706677, hexString: "#706677" },
+  { name: "Olive", value: 0x8d8741, hexString: "#8d8741" },
+  { name: "Coral", value: 0x7b9c91, hexString: "#7b9c91" },
+  { name: "Mint", value: 0xc7e9b0, hexString: "#c7e9b0" },
+  { name: "Lavender", value: 0xe6e6fa, hexString: "#E6E6FA" },
 ];
 
 const ColorDropdown = ({
@@ -52,10 +59,6 @@ const ColorDropdown = ({
                 takenColors.includes(color.value) &&
                 color.value !== selectedColor
               }
-              style={{
-                backgroundColor: hexToRgb(color.value),
-                color: getBrightness(color.value) > 128 ? "black" : "white",
-              }}
             >
               {color.name}
             </option>

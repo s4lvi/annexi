@@ -34,8 +34,21 @@ const GameCard = ({
   const gradientBg =
     cardTypeBgColors[type] || "from-gray-900/80 to-gray-700/80";
 
+  // Handle card click, prevent propagation to avoid triggering scroll drag
+  const handleCardClick = (e) => {
+    if (onClick && !isDisabled && (canAfford || !needsResource)) {
+      e.stopPropagation(); // Prevent interfering with the scroll drag
+      onClick(e);
+    }
+  };
+
   return (
-    <div className="w-72 h-96 flex items-center justify-center px-2">
+    <div
+      className="w-72 flex-shrink-0"
+      style={{
+        marginTop: "40px", // Position the card to have just the bottom portion on the bar
+      }}
+    >
       <div
         className={`relative flex flex-col w-64 bg-black rounded-lg overflow-hidden cursor-pointer 
                    transition-all duration-200 h-80 border-4 ${borderColor} 
@@ -43,10 +56,10 @@ const GameCard = ({
                      isDisabled || (!canAfford && needsResource)
                        ? "opacity-50"
                        : "opacity-90 hover:opacity-100 hover:scale-105"
-                   }`}
-        onClick={
-          !isDisabled && (canAfford || !needsResource) ? onClick : undefined
-        }
+                   }
+                   shadow-[0_8px_16px_rgba(0,0,0,0.5)]
+                   hover:shadow-[0_12px_24px_rgba(0,0,0,0.6)]`}
+        onClick={handleCardClick}
       >
         {/* Card Image Section - Top 60% */}
         <div
@@ -91,6 +104,9 @@ const GameCard = ({
             )}
           </div>
         </div>
+
+        {/* Shadow at the base of the card for 3D effect */}
+        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-black/40 to-transparent pointer-events-none"></div>
       </div>
     </div>
   );

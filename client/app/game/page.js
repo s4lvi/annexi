@@ -1,11 +1,9 @@
-// game/page.js
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import io from "socket.io-client";
-import { Check } from "lucide-react";
-import PhaseUI from "../../components/PhaseUi";
+import TurnUI from "@/components/TurnUI";
 import { useGameState } from "../../components/gameState";
 import ResourceBar from "../../components/ResourceBar";
 import { useAuth } from "@/components/AuthContext";
@@ -14,7 +12,7 @@ import { CreditCard } from "lucide-react";
 import CardInventoryModal from "../../components/CardInventoryModal";
 import ReadyButton from "@/components/ReadyButton";
 
-// At the top of GameContainer.jsx (after your imports)
+// Optional: for labeling steps in the ready button.
 const TURN_STEPS = [
   "Build City",
   "Buy Cards",
@@ -24,10 +22,6 @@ const TURN_STEPS = [
   "Set Target",
   "Battle",
 ];
-
-const getCurrentStepLabel = (turnStep) => {
-  return TURN_STEPS[turnStep] || "";
-};
 
 // Dynamically import the PhaserGame component.
 const PhaserGame = dynamic(() => import("../../components/PhaserGame"), {
@@ -46,33 +40,28 @@ export default function GameContainer() {
   const [message, setMessage] = useState("");
   const [localLoading, setLocalLoading] = useState(true);
   const prevLobbyIdRef = useRef(null);
-  const phaseUIRef = useRef(null);
+  const turnUIRef = useRef(null);
   const socketInitializedRef = useRef(false);
   const currentUserRef = useRef(null);
   const [inventoryOpen, setInventoryOpen] = useState(false);
 
   const toggleInventory = () => {
-    setInventoryOpen(!inventoryOpen);
+    setInventoryOpen((prev) => !prev);
   };
 
-  // Auth context
   const { user, loading, ensureUser } = useAuth();
-
-  // Get the current player for display purposes
   const currentPlayer = players.find((p) => p._id === currentPlayerId);
 
-  // Memoize this function to keep its reference stable
+  // Forward map clicks to the TurnUI
   const handleMapClick = useCallback((tileInfo) => {
-    if (phaseUIRef.current) {
-      phaseUIRef.current.handleMapClick(tileInfo);
+    if (turnUIRef.current) {
+      turnUIRef.current.handleMapClick(tileInfo);
     }
   }, []);
 
-  // Effect 1: Basic auth and navigation check - runs on auth state change
+  // Basic auth and navigation check
   useEffect(() => {
     if (loading) return;
-
-    // If no user, try to recover or redirect
     if (!user) {
       const recoveredUser = ensureUser();
       if (!recoveredUser) {
@@ -80,34 +69,21 @@ export default function GameContainer() {
         return;
       }
     }
-
-    // If no lobby ID, go back to lobby list
-    if (!queryLobbyId) {
-      router.push("/lobby");
-    }
+    if (!queryLobbyId) router.push("/lobby");
   }, [loading, user, queryLobbyId, router, ensureUser]);
 
-  // Effect 2: Game initialization - runs once when joining a new game
+  // Game initialization on lobby change
   useEffect(() => {
-    // Skip if still loading auth or no lobby ID
     if (loading || !queryLobbyId) return;
-
-    // Check if joining a new game
     if (prevLobbyIdRef.current !== queryLobbyId) {
-      // Reset game state for new game
       console.log("Resetting game state for new game:", queryLobbyId);
       dispatch({ type: "RESET_STATE" });
       prevLobbyIdRef.current = queryLobbyId;
-
-      // Store current user reference (without triggering re-renders)
       const currentUser = ensureUser();
       currentUserRef.current = currentUser;
-
-      // Set current player ID once
       console.log("Setting user in game state:", currentUser.username);
       dispatch({ type: "SET_CURRENT_PLAYER", payload: currentUser._id });
 
-      // Load data from localStorage if available
       const storedMapData = localStorage.getItem("mapData");
       const storedPlayers = localStorage.getItem("lobbyPlayers");
 
@@ -116,7 +92,6 @@ export default function GameContainer() {
         dispatch({ type: "SET_PLAYERS", payload: JSON.parse(storedPlayers) });
         setLocalLoading(false);
       } else {
-        // Fetch from API if not in localStorage
         fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}api/lobby/${queryLobbyId}`)
           .then((res) => res.json())
           .then((data) => {
@@ -147,9 +122,8 @@ export default function GameContainer() {
     }
   }, [loading, queryLobbyId, dispatch, ensureUser]);
 
-  // Effect 3: Socket connection - runs when currentPlayerId is set
+  // Socket connection (phaseChange events removed)
   useEffect(() => {
-    // Skip if required data isn't ready
     if (
       loading ||
       !queryLobbyId ||
@@ -158,11 +132,8 @@ export default function GameContainer() {
     )
       return;
 
-    // Set up socket connection (only once)
     socket = io(process.env.NEXT_PUBLIC_BACKEND_URL);
     socketInitializedRef.current = true;
-
-    // Get current user info for socket events
     const currentUser = currentUserRef.current || ensureUser();
 
     socket.emit("joinLobby", {
@@ -170,22 +141,14 @@ export default function GameContainer() {
       username: currentUser.username,
       _id: currentPlayerId,
     });
-
     socket.emit("requestFullState", {
       lobbyId: queryLobbyId,
       _id: currentPlayerId,
     });
 
     socket.on("playerStateSync", (data) => {
-      console.log("Received player state sync:", data);
-
       if (data.player) {
-        // Show reconnection message
-        if (data.message) {
-          setMessage(data.message);
-        }
-
-        // Request full state update to restore all game data
+        if (data.message) setMessage(data.message);
         socket.emit("requestFullState", {
           lobbyId: queryLobbyId,
           _id: currentPlayerId,
@@ -193,53 +156,30 @@ export default function GameContainer() {
       }
     });
 
-    // Socket event handlers
     socket.on("fullStateUpdate", (data) => {
       console.log("Received full state update:", data);
-
-      if (data.mapData) {
+      if (data.mapData)
         dispatch({ type: "SET_MAPDATA", payload: data.mapData });
-      }
-
-      if (data.players) {
+      if (data.players)
         dispatch({ type: "SET_PLAYERS", payload: data.players });
-      }
-
-      if (data.phase) {
-        dispatch({ type: "SET_PHASE", payload: data.phase });
-      }
-
-      if (data.cards) {
-        dispatch({ type: "SET_CARDS", payload: data.cards });
-      }
-
-      // Set territories if they exist
+      if (data.cards) dispatch({ type: "SET_CARDS", payload: data.cards });
       if (data.territories) {
-        // Process territories into the format your state expects
         Object.entries(data.territories).forEach(([playerId, territories]) => {
           dispatch({
             type: "BULK_ADD_TERRITORY",
-            payload: {
-              claims: territories.map((t) => ({ ...t, playerId })),
-            },
+            payload: { claims: territories.map((t) => ({ ...t, playerId })) },
           });
         });
       }
-
-      // Set cities if they exist
       if (data.cities) {
         data.cities.forEach((city) => {
-          dispatch({
-            type: "ADD_CITY",
-            payload: city,
-          });
+          dispatch({ type: "ADD_CITY", payload: city });
         });
       }
+      if (data.message) setMessage(data.message);
     });
 
     socket.on("cardPurchaseSuccess", (data) => {
-      console.log("Card purchase success:", data);
-      // Update player resources, inventory, and the current hand in state
       dispatch({
         type: "UPDATE_CARD_PURCHASE",
         payload: {
@@ -252,111 +192,48 @@ export default function GameContainer() {
 
     socket.on("gameStateUpdate", (data) => {
       console.log("Game state update received:", data);
-
-      // Update phase if provided
-      if (data.phase) {
-        dispatch({ type: "SET_PHASE", payload: data.phase });
-      }
-
-      // Update players if provided
-      if (data.players) {
+      if (data.mapData)
+        dispatch({ type: "SET_MAPDATA", payload: data.mapData });
+      if (data.players)
         dispatch({ type: "SET_PLAYERS", payload: data.players });
+      if (data.cards) dispatch({ type: "SET_CARDS", payload: data.cards });
+
+      // Add this line to update the turn step when server sends it
+      if (data.turnStep !== undefined) {
+        console.log(`Updating turn step to ${data.turnStep}`);
+        dispatch({ type: "SET_TURN_STEP", payload: data.turnStep });
+
+        // Also ensure player isn't marked as ready for the new step
+        dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: false });
       }
 
-      if (data.cards) {
-        dispatch({ type: "SET_CARDS", payload: data.cards });
-      }
-
-      // If this is the expand phase, ensure cityBuilt is reset
-      if (data.phase === "expand") {
-        console.log(
-          "Game state update indicates expand phase - resetting cityBuilt flag"
-        );
+      // Reset cityBuilt state when a new turn starts (turnStep = 0)
+      if (data.turnStep === 0) {
+        console.log("New turn started, resetting city built state");
         dispatch({ type: "SET_CITY_BUILT", payload: false });
+
+        // Also reset any other turn-specific states
+        dispatch({ type: "SET_EXPANSION_COMPLETE", payload: false });
+        dispatch({ type: "SET_PLACING_CITY", payload: false });
+        dispatch({ type: "SET_PLACING_STRUCTURE", payload: false });
+        dispatch({ type: "SET_SELECTED_STRUCTURE", payload: null });
       }
 
       dispatch({ type: "SET_LAST_UPDATE", payload: Date.now() });
-      // Show message if provided
-      if (data.message) {
-        setMessage(data.message);
-      }
+      if (data.message) setMessage(data.message);
     });
 
     socket.on("stepCompleted", (data) => {
-      dispatch({ type: "ADVANCE_TURN_STEP" });
-      // or, if you need to set turnStep explicitly:
       dispatch({ type: "SET_TURN_STEP", payload: data.turnStep });
       dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: false });
     });
 
     socket.on("lobbyUpdate", (data) => {
-      // The backend now sends players with the expected format
       dispatch({ type: "SET_PLAYERS", payload: data.players });
       if (data.message) setMessage(data.message);
     });
 
-    socket.on("phaseChange", (data) => {
-      console.log("Phase change received:", data);
-
-      // Update phase in state
-      dispatch({ type: "SET_PHASE", payload: data.phase });
-
-      // Show message if provided
-      if (data.message) {
-        setMessage(data.message);
-      }
-
-      // If we're entering the expand phase, reset cityBuilt
-      if (data.phase === "expand") {
-        console.log("Phase changed to expand - resetting cityBuilt flag");
-        dispatch({ type: "SET_CITY_BUILT", payload: false });
-        dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: false });
-      }
-      // If entering conquer phase, reset expansion complete flag
-      else if (data.phase === "conquer") {
-        console.log(
-          "Phase changed to conquer - setting expansionComplete to false"
-        );
-        dispatch({ type: "RESET_READY_STATUS" });
-        dispatch({ type: "SET_EXPANSION_COMPLETE", payload: false });
-        dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: false });
-      }
-    });
-
-    socket.on("gameStarted", (data) => {
-      console.log("Game started/rejoined:", data);
-      if (data.mapData)
-        dispatch({ type: "SET_MAPDATA", payload: data.mapData });
-
-      if (data.players) {
-        // Players are already transformed by the backend
-        dispatch({ type: "SET_PLAYERS", payload: data.players });
-      }
-
-      if (data.phase) dispatch({ type: "SET_PHASE", payload: data.phase });
-
-      // Update cards for the current player
-      if (data.cards) {
-        dispatch({
-          type: "SET_CARDS",
-          payload: data.cards,
-        });
-        // Make sure to use the correct property name for cards
-        dispatch({
-          type: "UPDATE_PLAYER_RESOURCES",
-          payload: {
-            _id: currentPlayerId,
-            production: data.production,
-            gold: data.gold || 0,
-          },
-        });
-      }
-    });
-
     socket.on("resourceUpdate", (data) => {
-      console.log("Resource update received:", data);
-
-      // Update the player's resources in the game state
       dispatch({
         type: "UPDATE_PLAYER_RESOURCES",
         payload: {
@@ -365,153 +242,84 @@ export default function GameContainer() {
           gold: data.gold,
         },
       });
-
-      // Display a message about the resource update
       setMessage(
         `Resources updated: ${data.production} production, ${data.gold} gold`
       );
     });
 
     socket.on("cardsUpdate", (data) => {
-      console.log("Cards inventory update received:", data);
-
-      // Update the player's resources in the game state
       dispatch({
         type: "UPDATE_PLAYER_CARDS",
-        payload: {
-          _id: currentPlayerId,
-          inventory: data.inventory,
-        },
+        payload: { _id: currentPlayerId, inventory: data.inventory },
       });
-      console.log("Updated player cards in state:", state.inventory);
-      // Display a message about the resource update
       setMessage(`Card inventory updated`);
     });
 
     socket.on("resetCityBuilt", (data) => {
-      console.log("City built flag reset received:", data);
-
-      // Reset the cityBuilt flag to allow building a new city
       dispatch({ type: "SET_CITY_BUILT", payload: false });
-
-      // Force a log of the cityBuilt state change
-      console.log("cityBuilt flag reset to false");
-
-      // Display the message
-      if (data.message) {
-        setMessage(data.message);
-      }
+      if (data.message) setMessage(data.message);
     });
 
     socket.on("territoryUpdate", (data) => {
-      console.log("Territory update received:", data);
       const { claims, currentRing, remainingInRing, remainingClaims } = data;
-
-      if (!claims || claims.length === 0) {
-        console.warn("Received empty territory update");
-        return;
-      }
-
-      // Use bulk update for better performance
-      dispatch({
-        type: "BULK_ADD_TERRITORY",
-        payload: { claims },
-      });
-
-      // Show progress with ring information
+      if (!claims || claims.length === 0) return;
+      dispatch({ type: "BULK_ADD_TERRITORY", payload: { claims } });
       if (remainingClaims > 0) {
-        let message = `Territory expansion in progress: ${remainingClaims} tiles remaining`;
-
-        if (currentRing !== undefined && remainingInRing !== undefined) {
-          message = `Expanding ring ${currentRing} (${remainingInRing} tiles left in ring, ${remainingClaims} total)`;
-        }
-
-        setMessage(message);
+        let msg = `Expanding ring ${currentRing} (${remainingInRing} left, ${remainingClaims} total)`;
+        setMessage(msg);
       }
-    });
-
-    socket.on("stepCompleted", (data) => {
-      console.log("Received stepCompleted event:", data);
-      dispatch({ type: "SET_TURN_STEP", payload: data.turnStep });
-      dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: false });
-    });
-
-    socket.on("handDealt", (data) => {
-      console.log("Hand dealt event received:", data);
-      dispatch({ type: "SET_CURRENT_HAND", payload: data.hand });
     });
 
     socket.on("buildStructureSuccess", (data) => {
-      console.log("Defensive structure placed successfully:", data);
-
-      // Update the game state to add the new defensive structure to the map.
       dispatch({
         type: "ADD_STRUCTURE",
         payload: {
           x: data.tile.x,
           y: data.tile.y,
-          structure: data.structure, // contains details like name, effect, etc.
+          structure: data.structure,
           playerId: data.playerId,
         },
       });
-      console.log("Structure added to game state:", data.structure, state);
-
-      // Remove the placed defensive structure card from the player's inventory.
-      // Assume that data.cardId identifies the card that was played.
       dispatch({
         type: "REMOVE_CARD_FROM_INVENTORY",
         payload: data.structure.id,
       });
-
       setMessage("Defensive structure placed!");
     });
 
     socket.on("territoryExpansionComplete", (data) => {
-      console.log("Territory expansion complete event received:", data);
       setMessage(
         data.message ||
           "Territory expansion complete - Place defensive structures"
       );
-
-      // Update UI to show territory expansion is complete
       dispatch({ type: "SET_EXPANSION_COMPLETE", payload: true });
     });
 
     socket.on("buildCitySuccess", (data) => {
-      console.log("City build succeeded:", data);
-      const { username, type, level, x, y, playerId } = data;
-
-      // Use playerId directly from the backend response
-      const cityPlayerId = playerId;
-
-      // Add city to state
+      console.log("Build city success:", data);
       dispatch({
         type: "ADD_CITY",
         payload: {
-          x,
-          y,
-          type,
-          level,
-          playerId: cityPlayerId,
+          x: data.x,
+          y: data.y,
+          type: data.type,
+          level: data.level,
+          playerId: data.playerId,
         },
       });
-
-      // If this is the current player's city
-      if (cityPlayerId === currentPlayerId) {
-        console.log("City built by current player:", username);
+      if (data.playerId === currentPlayerId) {
         dispatch({ type: "SET_CITY_BUILT", payload: true });
-        setMessage("City built! Territory will expand in the conquer phase.");
+        console.log("City built by current player:", currentPlayerId);
+        setMessage("City built! Proceed to buying cards.");
       }
     });
 
     socket.on("buildCityError", (data) => {
-      console.error("City build failed:", data);
       dispatch({ type: "SET_CITY_BUILT", payload: false });
       setMessage(`Failed to build city: ${data.message || "Unknown error"}`);
     });
 
     socket.on("cardPurchaseSuccess", (data) => {
-      console.log("Card purchase success:", data);
       dispatch({
         type: "UPDATE_PLAYER_RESOURCES",
         payload: {
@@ -523,7 +331,6 @@ export default function GameContainer() {
       });
     });
 
-    // Cleanup socket connection on unmount
     return () => {
       if (socket) {
         socket.disconnect();
@@ -533,7 +340,6 @@ export default function GameContainer() {
   }, [currentPlayerId, queryLobbyId, dispatch, loading, ensureUser]);
 
   const handleCityPlacement = (tileInfo) => {
-    console.log("City placed at", tileInfo);
     socket.emit("buildCity", {
       lobbyId: queryLobbyId,
       tile: tileInfo,
@@ -542,17 +348,15 @@ export default function GameContainer() {
   };
 
   const handleStructurePlacement = (tileInfo, structure) => {
-    console.log("Structure placed at", tileInfo);
     socket.emit("buildStructure", {
       lobbyId: queryLobbyId,
-      structure: structure,
+      structure,
       tile: tileInfo,
       _id: currentPlayerId,
     });
   };
 
   const handleCardSelected = (card) => {
-    console.log("Card selected:", card);
     socket.emit("buyCard", {
       lobbyId: queryLobbyId,
       card,
@@ -560,33 +364,20 @@ export default function GameContainer() {
     });
   };
 
-  const onPhaseReadyWrapper = (phaseType) => {
-    console.log(`Player ready for phase: ${phaseType}`);
-    socket.emit("playerReady", {
-      lobbyId: queryLobbyId,
-      username: currentPlayer.username,
-      _id: currentPlayerId,
-      turnStep: turnStep, // now sending the current turn step
-      phase: phaseType,
-    });
-    dispatch({ type: "ADVANCE_TURN_STEP" });
-  };
-
   const handleGlobalReady = () => {
     if (!currentPlayerReady) {
-      // Mark the local player as ready for the current step.
       dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: true });
       socket.emit("playerReady", {
         lobbyId: queryLobbyId,
         username: currentPlayer.username,
         _id: currentPlayerId,
-        turnStep: turnStep, // send the current turn step to the server
       });
     }
   };
 
   const handleCancelPlacement = () => {
     console.log("City placement canceled");
+    dispatch({ type: "SET_PLACING_CITY", payload: false });
   };
 
   if (loading || localLoading) {
@@ -600,15 +391,19 @@ export default function GameContainer() {
         matchId={queryLobbyId}
         onMapClick={handleMapClick}
       />
-      <PhaseUI
-        ref={phaseUIRef}
+      <TurnUI
+        ref={turnUIRef}
         onCityPlacement={handleCityPlacement}
         onCardSelected={handleCardSelected}
-        onCancelPlacement={handleCancelPlacement}
         onStructurePlacement={handleStructurePlacement}
-        onPhaseReady={onPhaseReadyWrapper}
+        onTargetSelected={(tileInfo) =>
+          console.log("Target selected:", tileInfo)
+        }
+        onArmyQueued={(queuedCards) =>
+          console.log("Armies queued:", queuedCards)
+        }
       />
-      <div className="absolute top-5 right-1/3 z-10">
+      <div className="absolute top-5 right-1/2 z-10">
         <button onClick={toggleInventory} className="bg-gray-900 p-2 rounded">
           <CreditCard color="white" size={24} />
         </button>
@@ -653,36 +448,14 @@ export default function GameContainer() {
           title="horses"
         />
       </div>
-      {/* <div className="absolute top-5 left-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
-        <h2>Game Room: {queryLobbyId}</h2>
-        <h3>Player: {user ? `${user.username} (${user._id})` : "Guest"}</h3>
-        <h3>Phase: {phase}</h3>
-        <hr />
-        <h3>Players:</h3>
-        <ul>
-          {players.map((p, index) => (
-            <li key={index} className="flex items-center">
-              {p.username}
-              {p.ready && <Check color="green" size={16} className="ml-1" />}
-            </li>
-          ))}
-        </ul>
-        <hr />
-        <button
-          onClick={handleBackToLobby}
-          className="mt-2 ml-2 px-4 py-2 rounded bg-green-500 text-white"
-        >
-          Back to Lobby
-        </button>
-      </div> */}
       <div className="absolute top-16 right-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
         {message && <p>{message}</p>}
       </div>
       <ReadyButton
-        isReady={currentPlayerReady} // When this is true, the button shows "Waiting"
+        isReady={currentPlayerReady}
         onClick={handleGlobalReady}
-        currentStep={turnStep} // Turn step index from 0 to 6
-        localReady={currentPlayerReady} // Used to fill the current segment yellow
+        currentStep={turnStep}
+        localReady={currentPlayerReady}
       />
     </div>
   );

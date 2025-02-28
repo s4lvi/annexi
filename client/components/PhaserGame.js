@@ -9,7 +9,7 @@ import { validateCityPlacement, validateStructurePlacement } from "./PhaseUi";
 export default function PhaserGame({ mapData, matchId, onMapClick }) {
   const gameRef = useRef(null);
   const hasInitialized = useRef(false);
-  const { state } = useGameState();
+  const { state, dispatch } = useGameState();
 
   function renderAdjacencyLines(scene) {
     const hexRadius = scene.registry.get("hexRadius");
@@ -17,29 +17,24 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
     const offsetY = scene.registry.get("offsetY");
     const hexWidth = scene.registry.get("hexWidth");
     const hexHeight = scene.registry.get("hexHeight");
+    // Get the whole game state (which includes currentPlayerId, etc.)
     const gameState = scene.registry.get("gameState");
     const currentPlayerId = gameState?.currentPlayerId;
 
-    // Clear previous lines.
     scene.adjacencyGraphics.clear();
 
-    // Only proceed if we have a current player ID
     if (!currentPlayerId) return;
 
-    // Filter cities to only show the current player's cities
     const playerCities = state.cities.filter(
       (city) => city.playerId === currentPlayerId
     );
 
-    // Draw lines between each pair of the player's cities
     for (let i = 0; i < playerCities.length; i++) {
       for (let j = i + 1; j < playerCities.length; j++) {
-        // Calculate distance between cities (hex grid)
         const dx = playerCities[i].x - playerCities[j].x;
         const dy = playerCities[i].y - playerCities[j].y;
         const distance = Math.sqrt(dx * dx + dy * dy);
 
-        // Compute centers based on hex geometry.
         const centerX1 =
           playerCities[i].x * (hexWidth * 0.75) + hexRadius + offsetX;
         const centerY1 =
@@ -56,40 +51,23 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
           hexHeight / 2 +
           offsetY;
 
-        // Choose color and opacity based on distance thresholds
         if (distance <= 3) {
-          // Strong bonus (0.2): green line
           scene.adjacencyGraphics.lineStyle(6, 0x00ff00, 0.3);
-          scene.adjacencyGraphics.beginPath();
-          scene.adjacencyGraphics.moveTo(centerX1, centerY1);
-          scene.adjacencyGraphics.lineTo(centerX2, centerY2);
-          scene.adjacencyGraphics.strokePath();
         } else if (distance <= 5) {
-          // Medium bonus (0.1): yellow line
           scene.adjacencyGraphics.lineStyle(4, 0xffff00, 0.3);
-          scene.adjacencyGraphics.beginPath();
-          scene.adjacencyGraphics.moveTo(centerX1, centerY1);
-          scene.adjacencyGraphics.lineTo(centerX2, centerY2);
-          scene.adjacencyGraphics.strokePath();
         } else if (distance <= 7) {
-          // No bonus, but shows potential future connection: red line
           scene.adjacencyGraphics.lineStyle(2, 0xff0000, 0.3);
-          scene.adjacencyGraphics.beginPath();
-          scene.adjacencyGraphics.moveTo(centerX1, centerY1);
-          scene.adjacencyGraphics.lineTo(centerX2, centerY2);
-          scene.adjacencyGraphics.strokePath();
         }
+        scene.adjacencyGraphics.beginPath();
+        scene.adjacencyGraphics.moveTo(centerX1, centerY1);
+        scene.adjacencyGraphics.lineTo(centerX2, centerY2);
+        scene.adjacencyGraphics.strokePath();
       }
     }
   }
 
-  // Initial game setup - only run once
   useEffect(() => {
-    // CRITICAL FIX: If we've already initialized, don't recreate the game
-    if (hasInitialized.current) {
-      return;
-    }
-
+    if (hasInitialized.current) return;
     if (!mapData) return;
 
     hasInitialized.current = true;
@@ -102,7 +80,6 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
     const totalRows = mapData.length;
     const totalWidth = totalCols * (hexWidth * 0.75) + hexRadius;
     const totalHeight = totalRows * hexHeight + hexHeight / 2;
-    // Center the map in the full-window canvas.
     const offsetX = (window.innerWidth - totalWidth) / 2;
     const offsetY = (window.innerHeight - totalHeight) / 2;
 
@@ -113,16 +90,11 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
       parent: "phaser-game",
       scene: {
         preload: function () {
-          // Preload city and structure images
-          // In Next.js, assets should be in the public folder
-          this.load.setBaseURL(""); // Set base URL to public folder
-
-          // If you know the specific city and structure types in advance, you can preload them here
-          // Example: this.load.image('city_residential', '/images/structure/residential.png');
-          // If not, you'll need to dynamically load them when rendering
+          this.load.setBaseURL("");
+          // Preload assets as needed.
         },
         create: function () {
-          // Set up registry values that never change
+          // Set registry values
           this.registry.set("offsetX", offsetX);
           this.registry.set("offsetY", offsetY);
           this.registry.set("mapCols", mapData[0]?.length || 0);
@@ -131,22 +103,16 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
           this.registry.set("hexRadius", hexRadius);
           this.registry.set("hexWidth", hexWidth);
           this.registry.set("hexHeight", hexHeight);
-          this.registry.set("gameState", state);
-
-          // Set initial phase and placingCity from global state.
-          this.registry.set("phase", state.phase);
+          // NEW: Set turnStep instead of phase.
+          this.registry.set("turnStep", state.turnStep);
           this.registry.set("placingCity", state.placingCity);
           this.registry.set("placingStructure", state.placingStructure);
+          this.registry.set("gameState", state);
 
-          // Create a new graphics object for the base map
           this.mapGraphics = this.add.graphics();
           this.territoryGraphics = this.add.graphics();
           this.adjacencyGraphics = this.add.graphics();
           this.cityGraphics = this.add.graphics();
-
-          // Create a container for city and structure images
-          this.cityImagesContainer = this.add.container(0, 0);
-          this.structureImagesContainer = this.add.container(0, 0);
 
           this.cameras.main.setZoom(1);
 
@@ -156,16 +122,9 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
             water: 0x3366cc,
           };
 
-          // Player colors for territories (avoid bright green)
           this.playerColors = [
-            0xed6a5a, // red
-            0x5ca4a9, // teal
-            0xe6af2e, // yellow
-            0x9370db, // purple
-            0x3d405b, // navy
-            0x81b29a, // sage
-            0xf4845f, // orange
-            0x706677, // slate
+            0xed6a5a, 0x5ca4a9, 0xe6af2e, 0x9370db, 0x3d405b, 0x81b29a,
+            0xf4845f, 0x706677,
           ];
 
           const hexagonPoints = [
@@ -176,11 +135,8 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
             { x: hexRadius / 2, y: (hexRadius * Math.sqrt(3)) / 2 },
             { x: -hexRadius / 2, y: (hexRadius * Math.sqrt(3)) / 2 },
           ];
-
-          // Store hex points for reuse
           this.registry.set("hexagonPoints", hexagonPoints);
 
-          // Instantiate the highlighter.
           const highlighter = new HexTileHighlighter(
             this,
             hexagonPoints,
@@ -190,7 +146,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
           );
           this.highlighter = highlighter;
 
-          // Render each tile.
+          // Render map tiles.
           for (let row = 0; row < mapData.length; row++) {
             for (let col = 0; col < mapData[row].length; col++) {
               const tile = mapData[row][col];
@@ -200,8 +156,6 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
                 (col % 2 ? hexHeight / 2 : 0) +
                 hexHeight / 2 +
                 offsetY;
-
-              // Store center points in the tile for future reference
               tile.centerX = centerX;
               tile.centerY = centerY;
 
@@ -221,24 +175,21 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
             }
           }
 
-          // Instantiate and register ControlsManager.
           const controlsManager = new ControlsManager(this, onMapClick);
           controlsManager.register();
 
-          // Use pointermove to update highlight.
+          // Update highlight on pointermove based on turnStep.
           this.input.on("pointermove", (pointer) => {
             const tile = controlsManager.getTileAt(pointer.x, pointer.y);
             const currentState = this.registry.get("gameState");
-            const phase = this.registry.get("phase");
+            const turnStep = this.registry.get("turnStep");
             const placingCity = this.registry.get("placingCity");
             const placingStructure = this.registry.get("placingStructure");
 
-            if (phase === "expand" && placingCity) {
-              // Use city placement validation for the expand phase.
+            if (turnStep === 0 && placingCity) {
               const isValid = validateCityPlacement(tile, currentState);
               highlighter.updateHighlight(tile, isValid);
-            } else if (phase === "conquer" && placingStructure) {
-              // Use defensive structure placement validation for the conquer phase.
+            } else if (turnStep === 3 && placingStructure) {
               const isValid = validateStructurePlacement(tile, currentState);
               highlighter.updateHighlight(tile, isValid);
             } else {
@@ -259,7 +210,14 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
     return () => {
       window.removeEventListener("resize", handleResize);
     };
-  }, [mapData, matchId, onMapClick, state.phase, state.placingCity]);
+  }, [
+    mapData,
+    matchId,
+    onMapClick,
+    state.turnStep,
+    state.placingCity,
+    state.placingStructure,
+  ]);
 
   // Helper function to format image name
   const formatImageName = (type) => {
@@ -293,7 +251,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
       gameRef.current.scene.scenes.length > 0
     ) {
       const scene = gameRef.current.scene.scenes[0];
-      scene.registry.set("phase", state.phase);
+      scene.registry.set("turnStep", state.turnStep);
       scene.registry.set("placingCity", state.placingCity);
       scene.registry.set("placingStructure", state.placingStructure);
       scene.registry.set("gameState", state);
@@ -442,7 +400,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
                 structureImage.setScale(scale);
 
                 // Add to container for easy cleanup
-                scene.structureImagesContainer.add(structureImage);
+                //scene.structureImagesContainer.add(structureImage);
               }
               // No fallback drawing for structures as they don't have a default representation
             });
@@ -508,7 +466,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
                 cityImage.setScale(scale);
 
                 // Add to container for easy cleanup
-                scene.cityImagesContainer.add(cityImage);
+                //scene.cityImagesContainer.add(cityImage);
 
                 // Add level indicator if greater than 1
                 if (city.level > 1) {
@@ -536,7 +494,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
       }
     }
   }, [
-    state.phase,
+    state.turnStep,
     state.placingCity,
     state.placingStructure,
     state.cities,
@@ -545,6 +503,20 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
     mapData,
     state.lastUpdate,
   ]);
+
+  useEffect(() => {
+    if (state.cityBuilt) {
+      // Ensure the city placement mode is turned off
+      dispatch({ type: "SET_PLACING_CITY", payload: false });
+      // Reset the cursor
+      document.body.style.cursor = "default";
+      // Optionally, hide the highlighter if your Phaser scene is available:
+      if (gameRef.current && gameRef.current.scene.scenes.length > 0) {
+        const scene = gameRef.current.scene.scenes[0];
+        scene.highlighter.hideHighlight();
+      }
+    }
+  }, [state.cityBuilt, dispatch]);
 
   return (
     <div

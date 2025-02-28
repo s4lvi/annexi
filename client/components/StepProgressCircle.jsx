@@ -1,4 +1,3 @@
-// StepProgressCircle.jsx
 import React from "react";
 
 function polarToCartesian(cx, cy, radius, angleInDegrees) {
@@ -57,22 +56,33 @@ export default function StepProgressCircle({
 }) {
   const cx = size / 2;
   const cy = size / 2;
-  const outerRadius = size * 0.45;
-  const innerRadius = size * 0.35;
-  const gap = 2; // degrees
+  const outerRadius = size * 0.3;
+  const innerRadius = size * 0.45;
+  const gap = 10; // degrees
   const stepAngle = 360 / totalSteps;
   const segments = [];
 
   for (let i = 0; i < totalSteps; i++) {
     const startAngle = i * stepAngle + gap / 2;
     const endAngle = (i + 1) * stepAngle - gap / 2;
-    let fillColor = "rgba(108,117,125,0.7)"; // default gray for incomplete
+
+    // New color logic:
+    // - Red for current step (not yet ready)
+    // - Yellow for current step when locally ready (waiting for server confirmation)
+    // - Green for completed steps
+    // - Gray for future steps
+    let fillColor = "rgba(108,117,125,0.1)"; // default gray for incomplete/future steps
+
     if (i < currentStep) {
       fillColor = "#28a745"; // green for completed steps
     } else if (i === currentStep) {
-      // If the local player is ready for this step but not yet confirmed by the server, show yellow.
-      fillColor = localReady ? "#f1c40f" : "rgba(108,117,125,0.7)";
+      if (localReady) {
+        fillColor = "#f1c40f"; // yellow when waiting
+      } else {
+        fillColor = "#dc3545"; // red for current active step
+      }
     }
+
     segments.push(
       <path
         key={i}

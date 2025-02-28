@@ -81,7 +81,7 @@ export default function ArmyQueueUI({ onArmyQueued }) {
       </div>
 
       <h4>Selected Queue:</h4>
-      <DragDropContext onDragEnd={handleDragEnd}>
+      {/* <DragDropContext onDragEnd={handleDragEnd}>
         <Droppable droppableId="armyQueue">
           {(provided) => (
             <div
@@ -128,7 +128,7 @@ export default function ArmyQueueUI({ onArmyQueued }) {
             </div>
           )}
         </Droppable>
-      </DragDropContext>
+      </DragDropContext> */}
 
       <button
         onClick={handleFinish}

@@ -41,15 +41,8 @@ export default function GameContainer() {
   const searchParams = useSearchParams();
   const queryLobbyId = searchParams.get("lobbyId");
   const { state, dispatch } = useGameState();
-  const {
-    mapData,
-    players,
-    phase,
-    currentPlayerId,
-    currentPlayerReady,
-    queueingArmy,
-    placingCity,
-  } = state;
+  const { mapData, players, currentPlayerId, currentPlayerReady, turnStep } =
+    state;
   const [message, setMessage] = useState("");
   const [localLoading, setLocalLoading] = useState(true);
   const prevLobbyIdRef = useRef(null);
@@ -289,6 +282,13 @@ export default function GameContainer() {
       }
     });
 
+    socket.on("stepCompleted", (data) => {
+      dispatch({ type: "ADVANCE_TURN_STEP" });
+      // or, if you need to set turnStep explicitly:
+      dispatch({ type: "SET_TURN_STEP", payload: data.turnStep });
+      dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: false });
+    });
+
     socket.on("lobbyUpdate", (data) => {
       // The backend now sends players with the expected format
       dispatch({ type: "SET_PLAYERS", payload: data.players });
@@ -310,6 +310,7 @@ export default function GameContainer() {
       if (data.phase === "expand") {
         console.log("Phase changed to expand - resetting cityBuilt flag");
         dispatch({ type: "SET_CITY_BUILT", payload: false });
+        dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: false });
       }
       // If entering conquer phase, reset expansion complete flag
       else if (data.phase === "conquer") {
@@ -318,6 +319,7 @@ export default function GameContainer() {
         );
         dispatch({ type: "RESET_READY_STATUS" });
         dispatch({ type: "SET_EXPANSION_COMPLETE", payload: false });
+        dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: false });
       }
     });
 
@@ -426,6 +428,12 @@ export default function GameContainer() {
 
         setMessage(message);
       }
+    });
+
+    socket.on("stepCompleted", (data) => {
+      console.log("Received stepCompleted event:", data);
+      dispatch({ type: "SET_TURN_STEP", payload: data.turnStep });
+      dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: false });
     });
 
     socket.on("handDealt", (data) => {
@@ -558,6 +566,7 @@ export default function GameContainer() {
       lobbyId: queryLobbyId,
       username: currentPlayer.username,
       _id: currentPlayerId,
+      turnStep: turnStep, // now sending the current turn step
       phase: phaseType,
     });
     dispatch({ type: "ADVANCE_TURN_STEP" });

@@ -128,6 +128,7 @@ function initLobby(lobbyId) {
     },
     turnStarted: false, // Ensure new turn logic runs only once.
     phaseTransitionInProgress: false, // Guard for phase transition
+    turnStep: 0,
   };
 }
 
@@ -139,6 +140,7 @@ function startNewTurn(lobbyId, io) {
     return;
   }
   lobby.turnStarted = true;
+  lobby.turnStep = 0;
   // Collect resources for each player.
   collectResources(lobby, io);
   // Reset pending cities.
@@ -318,7 +320,7 @@ function advancePhase(lobbyId, io) {
           readyConquer: false,
         }));
         io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
-          players: lobby.players,
+          players: getSafePlayers(lobbies[lobbyId].players),
           message: "New turn started. Ready status reset.",
         });
       }, 1000);
@@ -345,7 +347,7 @@ function advancePhase(lobbyId, io) {
     }));
   }
   io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
-    players: lobby.players,
+    players: getSafePlayers(lobbies[lobbyId].players),
     message: `Phase advanced to ${lobby.phase}.`,
   });
 
@@ -598,6 +600,15 @@ function shuffleArray(array) {
   }
 }
 
+function getSafePlayer(player) {
+  const { disconnectTimeout, ...safePlayer } = player;
+  return safePlayer;
+}
+
+function getSafePlayers(players) {
+  return players.map(getSafePlayer);
+}
+
 module.exports = function (io) {
   io.on("connection", (socket) => {
     console.log("New client connected:", socket.id);
@@ -631,13 +642,13 @@ module.exports = function (io) {
 
         // Send the restored state to the reconnecting player
         socket.emit("playerStateSync", {
-          player: existingPlayer,
+          player: getSafePlayer(existingPlayer),
           message: "Your session has been restored.",
         });
 
         // Notify others in the lobby
         io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
-          players: lobbies[lobbyId].players,
+          players: getSafePlayers(lobbies[lobbyId].players),
           message: `${username} has reconnected.`,
         });
         return;
@@ -654,6 +665,7 @@ module.exports = function (io) {
         username,
         _id,
         ready: false,
+        readyForStep: false,
         production: 10,
         gold: 0,
         cities: [],
@@ -766,7 +778,7 @@ module.exports = function (io) {
       // Prepare the complete game state using the new card system
       const fullState = {
         mapData: lobby.mapData,
-        players: lobby.players,
+        players: getSafePlayers(lobby.players),
         phase: lobby.phase,
         cards: {
           deck: player.deck,
@@ -796,58 +808,43 @@ module.exports = function (io) {
 
       socket.emit("fullStateUpdate", fullState);
     });
-
+    socket.on("stepCompleted", (data) => {
+      dispatch({ type: "SET_TURN_STEP", payload: data.turnStep });
+      dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: false });
+    });
     socket.on("playerReady", (data) => {
-      const { lobbyId, username, _id, phase } = data;
-      if (!lobbies[lobbyId]) return;
+      const { lobbyId, username, _id, turnStep } = data;
+      const lobby = lobbies[lobbyId];
+      if (!lobby) return;
 
-      console.log(
-        `Player ${username} (${_id}) is ready for ${phase} phase in lobby ${lobbyId}`
-      );
-
-      // Update the readiness flag depending on which phase the ready event is for.
-      lobbies[lobbyId].players = lobbies[lobbyId].players.map((player) => {
-        if (player._id === _id) {
-          if (phase === "expand") {
-            return { ...player, readyExpand: true };
-          } else if (phase === "conquer") {
-            return { ...player, readyConquer: true };
-          }
-        }
-        return player;
-      });
+      // Mark the player as ready for this step.
+      const player = lobby.players.find((p) => p._id === _id);
+      if (!player) return;
+      player.readyForStep = true;
 
       io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
-        players: lobbies[lobbyId].players,
-        message: `${username} is ready for ${phase} phase.`,
+        players: getSafePlayers(lobbies[lobbyId].players),
+        message: `${username} is ready for step ${turnStep}.`,
       });
 
-      // Check if all players are ready for this phase.
-      let allReady = false;
-      if (phase === "expand") {
-        allReady =
-          lobbies[lobbyId].players.length > 0 &&
-          lobbies[lobbyId].players.every((player) => player.readyExpand);
-      } else if (phase === "conquer") {
-        allReady =
-          lobbies[lobbyId].players.length > 0 &&
-          lobbies[lobbyId].players.every((player) => player.readyConquer);
-      }
-
+      // Check if all players are ready.
+      const allReady = lobby.players.every((p) => p.readyForStep);
       if (allReady) {
-        console.log(
-          `All players in lobby ${lobbyId} are ready for ${phase} phase. Advancing phase.`
-        );
-        // Use a slight delay to allow for any final UI updates.
-        setTimeout(() => {
-          if (lobbies[lobbyId] && lobbies[lobbyId].phaseTransitionInProgress) {
-            console.log(`Forcing phase transition reset for lobby ${lobbyId}`);
-            lobbies[lobbyId].phaseTransitionInProgress = false;
-          }
-          if (!lobbies[lobbyId].phaseTransitionInProgress) {
-            advancePhase(lobbyId, io);
-          }
-        }, 500);
+        // Reset all players' ready flags.
+        lobby.players.forEach((p) => (p.readyForStep = false));
+        // Advance the turn step.
+        lobby.turnStep =
+          lobby.turnStep < 6 ? lobby.turnStep + 1 : lobby.turnStep;
+        io.to(`lobby-${lobbyId}`).emit("stepCompleted", {
+          turnStep: lobby.turnStep,
+        });
+
+        // If we're still in the EXPAND phase and turnStep is greater than 1 (i.e. after card purchasing),
+        // automatically advance the phase.
+        if (lobby.phase === PHASES.EXPAND && lobby.turnStep > 1) {
+          console.log("All players ready in EXPAND phase, advancing phase.");
+          advancePhase(lobbyId, io);
+        }
       }
     });
 
@@ -1045,7 +1042,7 @@ module.exports = function (io) {
                 (p) => p._id !== player._id
               );
               io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
-                players: lobbies[lobbyId].players,
+                players: getSafePlayers(lobbies[lobbyId].players),
                 message: `${player.username} has left the lobby.`,
               });
             }, 10000); // 10 seconds grace period

@@ -120,7 +120,7 @@ function gameReducer(state, action) {
     case "RESET_READY_STATUS":
       return {
         ...state,
-        // You might add other ready flag resets here
+        currentPlayerReady: false,
       };
     case "SET_CURRENT_PLAYER":
       return { ...state, currentPlayerId: action.payload };

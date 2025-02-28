@@ -1,150 +1,120 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useGameState } from "./gameState";
-import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
-import ConfirmationModal from "./ConfirmationModal";
+import GameCard from "./GameCard";
+import CardDisplayBar from "./CardDisplayBar";
+
+function QueuedCardsDisplay({ queuedCards }) {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
+      <div className="flex gap-4 pointer-events-auto">
+        {queuedCards.map((card, index) => (
+          <GameCard key={index} card={card} halfSize={true} />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function ArmyQueueUI({ onArmyQueued }) {
-  const { state, dispatch } = useGameState();
+  const { state } = useGameState();
   const currentPlayer = state.players.find(
     (p) => p._id === state.currentPlayerId
   );
 
-  // Filter available unit cards from player's inventory
-  const availableUnitCards = currentPlayer.inventory.filter(
-    (card) => card.type === "unit"
-  );
-  const maxQueueLength = state.cities.filter(
-    (city) => city.playerId === currentPlayer._id
-  ).length;
+  // The maximum number of unit cards that can be queued equals the number of cities owned.
+  const maxQueueLength = currentPlayer?.cities
+    ? currentPlayer.cities.length
+    : 0;
 
+  // Local state to keep track of the temporary inventory (available unit cards) and selected queue.
   const [selectedCards, setSelectedCards] = useState([]);
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [tempInventory, setTempInventory] = useState([]);
 
-  // Add a card to the queue if not exceeding max allowed
-  const handleAddCard = (card) => {
+  // Initialize tempInventory from the player's unit cards.
+  useEffect(() => {
+    if (currentPlayer && currentPlayer.inventory) {
+      const availableUnitCards = currentPlayer.inventory.filter(
+        (card) => card.type === "unit"
+      );
+      setTempInventory(availableUnitCards);
+    }
+  }, [currentPlayer]);
+
+  // On clicking a card, if there's room, move it from the temporary inventory to the selected queue.
+  const handleCardClick = (card) => {
     if (selectedCards.length < maxQueueLength) {
       setSelectedCards([...selectedCards, card]);
+      setTempInventory(tempInventory.filter((c) => c !== card));
     }
   };
 
-  // Remove a card from the queue
-  const handleRemoveCard = (index) => {
-    const newQueue = [...selectedCards];
-    newQueue.splice(index, 1);
-    setSelectedCards(newQueue);
-  };
-
-  // Reordering using react-beautiful-dnd
-  const handleDragEnd = (result) => {
-    if (!result.destination) return;
-    const newQueue = Array.from(selectedCards);
-    const [removed] = newQueue.splice(result.source.index, 1);
-    newQueue.splice(result.destination.index, 0, removed);
-    setSelectedCards(newQueue);
-  };
-
-  // Trigger the finish modal
-  const handleFinish = () => {
-    setShowConfirm(true);
-  };
-
-  // When confirmed, pass the queued army to the parent and update game state
-  const confirmFinish = () => {
-    onArmyQueued(selectedCards);
+  // Reset button: clear the selected queue and put the cards back into the temporary inventory.
+  const handleReset = () => {
+    setTempInventory([...tempInventory, ...selectedCards]);
     setSelectedCards([]);
-    setShowConfirm(false);
-    dispatch({ type: "SET_QUEUING_ARMY", payload: false });
   };
+
+  // When ready is clicked, call the provided callback to send the queued order to the server.
+  const handleFinish = () => {
+    onArmyQueued(selectedCards);
+    // Optionally, clear the queue afterward.
+    setSelectedCards([]);
+  };
+
+  // Title and message for the CardDisplayBar.
+  const title = "Queue Army Units";
+  const message = `Select up to ${maxQueueLength} unit cards from your inventory.`;
+
+  // Right content for the bar shows the Reset button if there are selected cards.
+  const rightContent =
+    selectedCards.length > 0 ? (
+      <button
+        onClick={handleReset}
+        className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700"
+      >
+        Reset Queue
+      </button>
+    ) : null;
 
   return (
     <div className="army-queue-ui">
-      <h3>Army Queue</h3>
-      <p>Select up to {maxQueueLength} unit cards from your available cards.</p>
-
-      {/* Display available unit cards */}
-      <div className="available-cards">
-        {availableUnitCards.map((card, index) => (
-          <div
-            key={card.id}
-            className="card"
-            onClick={() => handleAddCard(card)}
-            style={{
-              border: "1px solid #ccc",
-              padding: "5px",
-              margin: "5px",
-              cursor: "pointer",
-            }}
-          >
-            <p>{card.name}</p>
-          </div>
-        ))}
-      </div>
-
-      <h4>Selected Queue:</h4>
-      {/* <DragDropContext onDragEnd={handleDragEnd}>
-        <Droppable droppableId="armyQueue">
-          {(provided) => (
-            <div
-              ref={provided.innerRef}
-              {...provided.droppableProps}
-              style={{
-                minHeight: "50px",
-                border: "1px solid #ddd",
-                padding: "10px",
-              }}
-            >
-              {selectedCards.map((card, index) => (
-                <Draggable
-                  key={`${card.id}-${index}`}
-                  draggableId={`${card.id}-${index}`}
-                  index={index}
-                >
-                  {(provided) => (
-                    <div
-                      className="selected-card"
-                      ref={provided.innerRef}
-                      {...provided.draggableProps}
-                      {...provided.dragHandleProps}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        border: "1px solid #aaa",
-                        padding: "5px",
-                        marginBottom: "5px",
-                        background: "#f9f9f9",
-                        ...provided.draggableProps.style,
-                      }}
-                    >
-                      <p>{card.name}</p>
-                      <button onClick={() => handleRemoveCard(index)}>
-                        Remove
-                      </button>
-                    </div>
-                  )}
-                </Draggable>
-              ))}
-              {provided.placeholder}
-            </div>
-          )}
-        </Droppable>
-      </DragDropContext> */}
-
-      <button
-        onClick={handleFinish}
-        disabled={selectedCards.length === 0}
-        style={{ marginTop: "10px", padding: "10px 20px" }}
+      <CardDisplayBar
+        title={title}
+        message={message}
+        rightContent={rightContent}
       >
-        Finished
-      </button>
+        {tempInventory.map((card, index) => (
+          <GameCard
+            key={`unit-${index}`}
+            card={card}
+            onClick={() => handleCardClick(card)}
+            needsResource={false}
+          />
+        ))}
+      </CardDisplayBar>
 
-      {showConfirm && (
-        <ConfirmationModal
-          message="Confirm your army queue?"
-          onConfirm={confirmFinish}
-          onCancel={() => setShowConfirm(false)}
-        />
+      {/* Display the selected queue */}
+      {selectedCards.length > 0 && (
+        <div className="selected-queue mt-4">
+          <h4 className="text-white text-lg mb-2">Selected Queue:</h4>
+          <div className="flex gap-4">
+            {selectedCards.length > 0 && (
+              <QueuedCardsDisplay queuedCards={selectedCards} />
+            )}
+          </div>
+        </div>
       )}
+
+      {/* Ready button to confirm the queued units */}
+      <div className="mt-4">
+        <button
+          onClick={handleFinish}
+          disabled={selectedCards.length === 0}
+          className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+        >
+          Ready
+        </button>
+      </div>
     </div>
   );
 }

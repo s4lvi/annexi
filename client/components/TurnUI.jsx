@@ -61,7 +61,6 @@ const TurnUI = forwardRef((props, ref) => {
     handleMapClick,
   }));
 
-  // Render the appropriate UI component based solely on turnStep.
   switch (turnStep) {
     case 0:
       return <CityPlacementUI {...props} />;

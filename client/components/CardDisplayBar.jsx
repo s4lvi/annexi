@@ -72,7 +72,7 @@ export default function CardDisplayBar({
 
   return (
     <div className="mobile-scale-container">
-      <div className="absolute bottom-0 left-0 w-full z-20">
+      <div className="absolute bottom-0 left-0 w-full h-[420px] z-20">
         {/* Cards container with horizontal scrolling */}
         {children && (
           <div
@@ -83,7 +83,7 @@ export default function CardDisplayBar({
             onMouseLeave={handleMouseLeave}
             onMouseMove={handleMouseMove}
           >
-            <div className="flex gap-4 px-2 py-20 min-h-[120px] items-center">
+            <div className="flex gap-4 px-2 pb-20 min-h-[120px] items-center">
               {React.Children.map(children, (child) => (
                 <div
                   onClick={(e) => {

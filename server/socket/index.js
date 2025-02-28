@@ -268,75 +268,6 @@ function collectResources(lobby, io) {
   });
 }
 
-function advancePhase(lobbyId, io) {
-  const lobby = lobbies[lobbyId];
-  if (!lobby) return;
-
-  if (lobby.phaseTransitionInProgress) {
-    console.log(`Phase transition already in progress in lobby ${lobbyId}`);
-    return;
-  }
-  lobby.phaseTransitionInProgress = true;
-
-  switch (lobby.phase) {
-    case PHASES.EXPAND:
-      // Transition from expansion to conquer.
-      lobby.phase = PHASES.CONQUER;
-      startTerritoryExpansion(lobbyId, io);
-      break;
-    case PHASES.CONQUER:
-      // Transition from conquer to resolution.
-      lobby.phase = PHASES.RESOLUTION;
-      // Delay for battle resolution then start a new turn.
-      setTimeout(() => {
-        lobby.phase = PHASES.EXPAND;
-        lobby.turnStarted = false;
-        lobby.players.forEach((player) => {
-          player.currentPhase = PHASES.EXPAND;
-        });
-        startNewTurn(lobbyId, io);
-        lobby.pendingCities = [];
-        // Reset readiness flags for both phases at the start of a new turn.
-        lobby.players = lobby.players.map((player) => ({
-          ...player,
-          readyExpand: false,
-          readyConquer: false,
-        }));
-        io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
-          players: getSafePlayers(lobbies[lobbyId].players),
-          message: "New turn started. Ready status reset.",
-        });
-      }, 1000);
-      break;
-    case PHASES.RESOLUTION:
-      // This branch is handled in the conquer delay.
-      break;
-    default:
-      break;
-  }
-
-  // Reset the ready flag for the phase that was just completed.
-  if (lobby.phase === PHASES.CONQUER) {
-    // We just transitioned from expand to conquer; clear readyExpand flags.
-    lobby.players = lobby.players.map((player) => ({
-      ...player,
-      readyExpand: false,
-    }));
-  } else if (lobby.phase === PHASES.RESOLUTION) {
-    // We just transitioned from conquer to resolution; clear readyConquer flags.
-    lobby.players = lobby.players.map((player) => ({
-      ...player,
-      readyConquer: false,
-    }));
-  }
-  io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
-    players: getSafePlayers(lobbies[lobbyId].players),
-    message: `Phase advanced to ${lobby.phase}.`,
-  });
-
-  lobby.phaseTransitionInProgress = false;
-}
-
 function startTerritoryExpansion(lobbyId, io) {
   console.log(`Starting territory expansion for lobby ${lobbyId}`);
   const lobby = lobbies[lobbyId];
@@ -1020,6 +951,46 @@ module.exports = function (io) {
         hand: player.currentHand, // Updated hand after removal.
       });
       updatePlayerResources(player, socket);
+    });
+
+    socket.on("queueArmy", (data) => {
+      const { lobbyId, _id, selectedCards } = data;
+      const lobby = lobbies[lobbyId];
+      if (!lobby) {
+        socket.emit("queueArmyError", { message: "Lobby not found." });
+        return;
+      }
+      const player = lobby.players.find((p) => p._id === _id);
+      if (!player) {
+        socket.emit("queueArmyError", { message: "Player not found." });
+        return;
+      }
+
+      // Verify that the number of queued cards does not exceed the number of cities.
+      const maxQueueLength = player.cities ? player.cities.length : 0;
+      if (selectedCards.length > maxQueueLength) {
+        socket.emit("queueArmyError", { message: "Too many units selected." });
+        return;
+      }
+
+      // Remove each selected card from the player's inventory permanently.
+      selectedCards.forEach((card) => {
+        const index = player.inventory.findIndex(
+          (invCard) => invCard.id === card.id
+        );
+        if (index !== -1) {
+          player.inventory.splice(index, 1);
+        }
+      });
+
+      // Save the queued army order for later resolution.
+      player.queuedArmy = selectedCards;
+
+      // Notify the client that the update was successful.
+      socket.emit("updateCards", {
+        inventory: player.inventory,
+        message: "Army queued successfully.",
+      });
     });
 
     socket.on("disconnect", () => {

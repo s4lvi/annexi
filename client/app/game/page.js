@@ -162,6 +162,24 @@ export default function GameContainer() {
       }
     });
 
+    socket.on("handDealt", (data) => {
+      dispatch({
+        type: "UPDATE_CARD_PURCHASE",
+        payload: {
+          hand: data.hand,
+        },
+      });
+    });
+    socket.on("updateCards", (data) => {
+      console.log("Received card update:", data);
+      dispatch({
+        type: "UPDATE_CARD_PURCHASE",
+        payload: {
+          inventory: data.inventory,
+        },
+      });
+    });
+
     socket.on("fullStateUpdate", (data) => {
       console.log("Received full state update:", data);
       if (data.mapData)
@@ -299,6 +317,12 @@ export default function GameContainer() {
           "Territory expansion complete - Place defensive structures"
       );
       dispatch({ type: "SET_EXPANSION_COMPLETE", payload: true });
+
+      socket.emit("playerReady", {
+        lobbyId: queryLobbyId,
+        username: currentPlayer.username,
+        _id: currentPlayerId,
+      });
     });
 
     socket.on("buildCitySuccess", (data) => {
@@ -317,6 +341,12 @@ export default function GameContainer() {
         dispatch({ type: "SET_CITY_BUILT", payload: true });
         console.log("City built by current player:", currentPlayerId);
         setMessage("City built! Proceed to buying cards.");
+
+        socket.emit("playerReady", {
+          lobbyId: queryLobbyId,
+          username: currentPlayer.username,
+          _id: currentPlayerId,
+        });
       }
     });
 
@@ -381,9 +411,12 @@ export default function GameContainer() {
     }
   };
 
-  const handleCancelPlacement = () => {
-    console.log("City placement canceled");
-    dispatch({ type: "SET_PLACING_CITY", payload: false });
+  const handleArmyQueued = (queuedCards) => {
+    socket.emit("queueArmy", {
+      lobbyId: queryLobbyId,
+      _id: currentPlayerId,
+      selectedCards: queuedCards,
+    });
   };
 
   if (loading || localLoading) {
@@ -414,10 +447,8 @@ export default function GameContainer() {
           onTargetSelected={(tileInfo) =>
             console.log("Target selected:", tileInfo)
           }
-          onArmyQueued={(queuedCards) =>
-            console.log("Armies queued:", queuedCards)
-          }
           uiVisible={uiVisible}
+          onArmyQueued={handleArmyQueued}
         />
       </div>
       <CardInventoryModal

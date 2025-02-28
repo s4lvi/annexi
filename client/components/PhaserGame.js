@@ -59,21 +59,21 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
         // Choose color and opacity based on distance thresholds
         if (distance <= 3) {
           // Strong bonus (0.2): green line
-          scene.adjacencyGraphics.lineStyle(8, 0x00ff00, 0.8);
+          scene.adjacencyGraphics.lineStyle(6, 0x00ff00, 0.3);
           scene.adjacencyGraphics.beginPath();
           scene.adjacencyGraphics.moveTo(centerX1, centerY1);
           scene.adjacencyGraphics.lineTo(centerX2, centerY2);
           scene.adjacencyGraphics.strokePath();
         } else if (distance <= 5) {
           // Medium bonus (0.1): yellow line
-          scene.adjacencyGraphics.lineStyle(5, 0xffff00, 0.6);
+          scene.adjacencyGraphics.lineStyle(4, 0xffff00, 0.3);
           scene.adjacencyGraphics.beginPath();
           scene.adjacencyGraphics.moveTo(centerX1, centerY1);
           scene.adjacencyGraphics.lineTo(centerX2, centerY2);
           scene.adjacencyGraphics.strokePath();
         } else if (distance <= 7) {
           // No bonus, but shows potential future connection: red line
-          scene.adjacencyGraphics.lineStyle(2, 0xff0000, 0.4);
+          scene.adjacencyGraphics.lineStyle(2, 0xff0000, 0.3);
           scene.adjacencyGraphics.beginPath();
           scene.adjacencyGraphics.moveTo(centerX1, centerY1);
           scene.adjacencyGraphics.lineTo(centerX2, centerY2);
@@ -372,6 +372,82 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
           });
         });
 
+        state.structures.forEach((structure) => {
+          console.log("Structure:", structure);
+          if (
+            mapData &&
+            mapData[structure.y] &&
+            mapData[structure.y][structure.x]
+          ) {
+            const playerIndex = state.players.findIndex(
+              (p) => p._id === structure.playerId
+            );
+
+            const player = state.players.find(
+              (p) => p._id === structure.playerId
+            );
+
+            // Use player's selected color if available, fall back to index-based color if not
+            const color =
+              player && player.color
+                ? player.color.value
+                : scene.playerColors[playerIndex % scene.playerColors.length];
+
+            // Calculate hex center coordinates
+            const centerX =
+              structure.x * (hexWidth * 0.75) + hexRadius + offsetX;
+            const centerY =
+              structure.y * hexHeight +
+              (structure.x % 2 ? hexHeight / 2 : 0) +
+              hexHeight / 2 +
+              offsetY;
+
+            // Draw structure hex - solid color
+            const points = hexagonPoints.map((p) => ({
+              x: p.x + centerX,
+              y: p.y + centerY,
+            }));
+
+            scene.cityGraphics.fillStyle(color, 1);
+            scene.cityGraphics.lineStyle(1, 0x555555, 0.8);
+            scene.cityGraphics.beginPath();
+            scene.cityGraphics.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {
+              scene.cityGraphics.lineTo(points[i].x, points[i].y);
+            }
+            scene.cityGraphics.closePath();
+            scene.cityGraphics.fillPath();
+            scene.cityGraphics.strokePath();
+
+            // Format the image name based on structure type
+            console.log(structure);
+            const formattedType = formatImageName(structure.structure.name);
+            const imageKey = `structure_${formattedType}`;
+            const imagePath = `/images/structure/${formattedType}.png`;
+
+            // Check if the image is already loaded or load it
+            loadImageIfNeeded(scene, imageKey, imagePath).then((success) => {
+              if (success) {
+                // Create and add the structure image
+                const structureImage = scene.add.image(
+                  centerX,
+                  centerY,
+                  imageKey
+                );
+
+                // Scale the image to fit within the hex
+                const scale =
+                  (hexRadius * 1) /
+                  Math.max(structureImage.width, structureImage.height);
+                structureImage.setScale(scale);
+
+                // Add to container for easy cleanup
+                scene.structureImagesContainer.add(structureImage);
+              }
+              // No fallback drawing for structures as they don't have a default representation
+            });
+          }
+        });
         // Now render cities on top
         state.cities.forEach((city) => {
           if (mapData && mapData[city.y] && mapData[city.y][city.x]) {
@@ -404,6 +480,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
             }));
 
             scene.cityGraphics.fillStyle(color, 1);
+            scene.cityGraphics.lineStyle(2, 0x8888dd, 0.8);
             scene.cityGraphics.beginPath();
             scene.cityGraphics.moveTo(points[0].x, points[0].y);
             for (let i = 1; i < points.length; i++) {
@@ -411,6 +488,7 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
             }
             scene.cityGraphics.closePath();
             scene.cityGraphics.fillPath();
+            scene.cityGraphics.strokePath();
 
             // Format the image name based on city type
             const formattedType = formatImageName(city.type);
@@ -449,83 +527,6 @@ export default function PhaserGame({ mapData, matchId, onMapClick }) {
                   scene.cityImagesContainer.add(levelText);
                 }
               }
-            });
-          }
-        });
-
-        state.structures.forEach((structure) => {
-          console.log("Structure:", structure);
-          if (
-            mapData &&
-            mapData[structure.y] &&
-            mapData[structure.y][structure.x]
-          ) {
-            // Find player index for color
-            let playerIndex = 0;
-            Object.keys(territories).forEach((pid, idx) => {
-              if (pid === structure.playerId) playerIndex = idx;
-            });
-
-            const player = state.players.find(
-              (p) => p._id === structure.playerId
-            );
-
-            // Use player's selected color if available, fall back to index-based color if not
-            const color =
-              player && player.color
-                ? player.color.value
-                : scene.playerColors[playerIndex % scene.playerColors.length];
-
-            // Calculate hex center coordinates
-            const centerX =
-              structure.x * (hexWidth * 0.75) + hexRadius + offsetX;
-            const centerY =
-              structure.y * hexHeight +
-              (structure.x % 2 ? hexHeight / 2 : 0) +
-              hexHeight / 2 +
-              offsetY;
-
-            // Draw structure hex - solid color
-            const points = hexagonPoints.map((p) => ({
-              x: p.x + centerX,
-              y: p.y + centerY,
-            }));
-
-            scene.cityGraphics.fillStyle(color, 1);
-            scene.cityGraphics.beginPath();
-            scene.cityGraphics.moveTo(points[0].x, points[0].y);
-            for (let i = 1; i < points.length; i++) {
-              scene.cityGraphics.lineTo(points[i].x, points[i].y);
-            }
-            scene.cityGraphics.closePath();
-            scene.cityGraphics.fillPath();
-
-            // Format the image name based on structure type
-            console.log(structure);
-            const formattedType = formatImageName(structure.structure.name);
-            const imageKey = `structure_${formattedType}`;
-            const imagePath = `/images/structure/${formattedType}.png`;
-
-            // Check if the image is already loaded or load it
-            loadImageIfNeeded(scene, imageKey, imagePath).then((success) => {
-              if (success) {
-                // Create and add the structure image
-                const structureImage = scene.add.image(
-                  centerX,
-                  centerY,
-                  imageKey
-                );
-
-                // Scale the image to fit within the hex
-                const scale =
-                  (hexRadius * 1) /
-                  Math.max(structureImage.width, structureImage.height);
-                structureImage.setScale(scale);
-
-                // Add to container for easy cleanup
-                scene.structureImagesContainer.add(structureImage);
-              }
-              // No fallback drawing for structures as they don't have a default representation
             });
           }
         });

@@ -15,7 +15,12 @@ export default function CardInventoryModal({ isOpen, onClose, cards }) {
         </div>
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
           {cards.map((card, index) => (
-            <GameCard key={index} card={card} isDisabled={true} />
+            <GameCard
+              key={index}
+              card={card}
+              isDisabled={true}
+              needsResource={false}
+            />
           ))}
         </div>
       </div>

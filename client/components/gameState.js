@@ -104,13 +104,18 @@ function gameReducer(state, action) {
     case "ADVANCE_TURN_STEP":
       return {
         ...state,
-        // Advance turn step but cap it at a maximum if needed
         turnStep: state.turnStep < 6 ? state.turnStep + 1 : state.turnStep,
+        currentPlayerReady: false, // reset ready flag for the new step
       };
     case "RESET_TURN_STEP":
       return {
         ...state,
         turnStep: 0,
+      };
+    case "SET_TURN_STEP":
+      return {
+        ...state,
+        turnStep: action.payload,
       };
     case "RESET_READY_STATUS":
       return {
@@ -119,6 +124,11 @@ function gameReducer(state, action) {
       };
     case "SET_CURRENT_PLAYER":
       return { ...state, currentPlayerId: action.payload };
+    case "SET_CURRENT_PLAYER_READY":
+      return {
+        ...state,
+        currentPlayerReady: action.payload,
+      };
     case "UPDATE_PLAYER":
       return {
         ...state,
@@ -238,7 +248,6 @@ function gameReducer(state, action) {
 
     case "RESET_STATE":
       return initialState;
-
     default:
       return state;
   }

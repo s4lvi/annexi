@@ -12,7 +12,22 @@ import { useAuth } from "@/components/AuthContext";
 import LoadingScreen from "@/components/LoadingScreen";
 import { CreditCard } from "lucide-react";
 import CardInventoryModal from "../../components/CardInventoryModal";
-import TurnProgressBar from "@/components/TurnProgressBar";
+import ReadyButton from "@/components/ReadyButton";
+
+// At the top of GameContainer.jsx (after your imports)
+const TURN_STEPS = [
+  "Build City",
+  "Buy Cards",
+  "Expand Territory",
+  "Place Structures",
+  "Queue Army",
+  "Set Target",
+  "Battle",
+];
+
+const getCurrentStepLabel = (turnStep) => {
+  return TURN_STEPS[turnStep] || "";
+};
 
 // Dynamically import the PhaserGame component.
 const PhaserGame = dynamic(() => import("../../components/PhaserGame"), {
@@ -26,7 +41,15 @@ export default function GameContainer() {
   const searchParams = useSearchParams();
   const queryLobbyId = searchParams.get("lobbyId");
   const { state, dispatch } = useGameState();
-  const { mapData, players, phase, currentPlayerId } = state;
+  const {
+    mapData,
+    players,
+    phase,
+    currentPlayerId,
+    currentPlayerReady,
+    queueingArmy,
+    placingCity,
+  } = state;
   const [message, setMessage] = useState("");
   const [localLoading, setLocalLoading] = useState(true);
   const prevLobbyIdRef = useRef(null);
@@ -420,7 +443,7 @@ export default function GameContainer() {
           x: data.tile.x,
           y: data.tile.y,
           structure: data.structure, // contains details like name, effect, etc.
-          playerId: currentPlayerId,
+          playerId: data.playerId,
         },
       });
       console.log("Structure added to game state:", data.structure, state);
@@ -529,26 +552,32 @@ export default function GameContainer() {
     });
   };
 
-  const handlePhaseReady = (phaseType) => {
+  const onPhaseReadyWrapper = (phaseType) => {
     console.log(`Player ready for phase: ${phaseType}`);
     socket.emit("playerReady", {
       lobbyId: queryLobbyId,
       username: currentPlayer.username,
       _id: currentPlayerId,
-      phase: phaseType, // "expand" or "conquer"
+      phase: phaseType,
     });
-    // Advance the local turn progress.
     dispatch({ type: "ADVANCE_TURN_STEP" });
+  };
+
+  const handleGlobalReady = () => {
+    if (!currentPlayerReady) {
+      // Mark the local player as ready for the current step.
+      dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: true });
+      socket.emit("playerReady", {
+        lobbyId: queryLobbyId,
+        username: currentPlayer.username,
+        _id: currentPlayerId,
+        turnStep: turnStep, // send the current turn step to the server
+      });
+    }
   };
 
   const handleCancelPlacement = () => {
     console.log("City placement canceled");
-  };
-
-  const handleBackToLobby = () => {
-    // Reset state before navigating back
-    dispatch({ type: "RESET_STATE" });
-    router.push("/lobby");
   };
 
   if (loading || localLoading) {
@@ -557,7 +586,6 @@ export default function GameContainer() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden">
-      <TurnProgressBar currentStep={state.turnStep} />
       <PhaserGame
         mapData={mapData}
         matchId={queryLobbyId}
@@ -569,19 +597,13 @@ export default function GameContainer() {
         onCardSelected={handleCardSelected}
         onCancelPlacement={handleCancelPlacement}
         onStructurePlacement={handleStructurePlacement}
-        onPhaseReady={handlePhaseReady}
+        onPhaseReady={onPhaseReadyWrapper}
       />
-
-      {/* Inventory Icon Button */}
-      <div className="absolute top-28 right-5 z-10">
-        <button
-          onClick={toggleInventory}
-          className="bg-gray-700 p-2 rounded-full"
-        >
+      <div className="absolute top-5 right-1/3 z-10">
+        <button onClick={toggleInventory} className="bg-gray-900 p-2 rounded">
           <CreditCard color="white" size={24} />
         </button>
       </div>
-      {/* Card Inventory Modal */}
       <CardInventoryModal
         isOpen={inventoryOpen}
         onClose={() => setInventoryOpen(false)}
@@ -622,11 +644,9 @@ export default function GameContainer() {
           title="horses"
         />
       </div>
-      <div className="absolute top-5 left-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
+      {/* <div className="absolute top-5 left-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
         <h2>Game Room: {queryLobbyId}</h2>
-        <h3>
-          Player: {user ? user.username + " (" + user._id + ")" : "Guest"}{" "}
-        </h3>
+        <h3>Player: {user ? `${user.username} (${user._id})` : "Guest"}</h3>
         <h3>Phase: {phase}</h3>
         <hr />
         <h3>Players:</h3>
@@ -645,10 +665,16 @@ export default function GameContainer() {
         >
           Back to Lobby
         </button>
-      </div>
+      </div> */}
       <div className="absolute top-16 right-5 z-10 text-white bg-black bg-opacity-50 p-2 rounded">
         {message && <p>{message}</p>}
       </div>
+      <ReadyButton
+        isReady={currentPlayerReady} // When this is true, the button shows "Waiting"
+        onClick={handleGlobalReady}
+        currentStep={turnStep} // Turn step index from 0 to 6
+        localReady={currentPlayerReady} // Used to fill the current segment yellow
+      />
     </div>
   );
 }

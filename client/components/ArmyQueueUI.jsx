@@ -68,12 +68,21 @@ export default function ArmyQueueUI({ onArmyQueued }) {
   // Right content for the bar shows the Reset button if there are selected cards.
   const rightContent =
     selectedCards.length > 0 ? (
-      <button
-        onClick={handleReset}
-        className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700"
-      >
-        Reset Queue
-      </button>
+      <div className=" flex flex-row gap-2">
+        <button
+          onClick={handleFinish}
+          disabled={selectedCards.length === 0}
+          className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+        >
+          Ready
+        </button>
+        <button
+          onClick={handleReset}
+          className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700"
+        >
+          Reset Queue
+        </button>
+      </div>
     ) : null;
 
   return (
@@ -106,15 +115,6 @@ export default function ArmyQueueUI({ onArmyQueued }) {
       )}
 
       {/* Ready button to confirm the queued units */}
-      <div className="mt-4">
-        <button
-          onClick={handleFinish}
-          disabled={selectedCards.length === 0}
-          className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-        >
-          Ready
-        </button>
-      </div>
     </div>
   );
 }

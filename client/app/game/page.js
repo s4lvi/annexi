@@ -417,6 +417,12 @@ export default function GameContainer() {
       _id: currentPlayerId,
       selectedCards: queuedCards,
     });
+    dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: true });
+    socket.emit("playerReady", {
+      lobbyId: queryLobbyId,
+      username: currentPlayer.username,
+      _id: currentPlayerId,
+    });
   };
 
   if (loading || localLoading) {

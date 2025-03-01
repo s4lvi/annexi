@@ -3,10 +3,19 @@ const lobbies = {};
 
 const baseDeckDefinition = [
   {
+    id: "capital-city",
+    name: "Capital City",
+    type: "city",
+    effect: "Establish your capital city.",
+    cost: { production: 10 },
+    count: 1,
+    hideFromInventory: true, // It will never show up in the inventory UI
+  },
+  {
     id: "base-city",
     name: "Base City",
     type: "city",
-    effect: "Establish your capital city.",
+    effect: "Expands your territory frontier.",
     cost: { production: 10 },
     count: 1,
     alwaysInInventory: true, // This card is always available
@@ -17,7 +26,7 @@ const baseDeckDefinition = [
     name: "Fortified City",
     type: "city",
     effect: "Increases defense and production of city.",
-    cost: { production: 20, gold: 1 },
+    cost: { production: 1, gold: 1 },
     count: 3,
   },
   {
@@ -956,6 +965,7 @@ module.exports = function (io) {
     socket.on("queueArmy", (data) => {
       const { lobbyId, _id, selectedCards } = data;
       const lobby = lobbies[lobbyId];
+      console.log("Queue army event:", data);
       if (!lobby) {
         socket.emit("queueArmyError", { message: "Lobby not found." });
         return;
@@ -985,7 +995,7 @@ module.exports = function (io) {
 
       // Save the queued army order for later resolution.
       player.queuedArmy = selectedCards;
-
+      console.log("Player army queued:", selectedCards);
       // Notify the client that the update was successful.
       socket.emit("updateCards", {
         inventory: player.inventory,

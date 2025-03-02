@@ -1,176 +1,116 @@
-import React, { useState, useEffect } from "react";
+// components/TargetSelectionUI.jsx
+import React, {
+  forwardRef,
+  useState,
+  useImperativeHandle,
+  useEffect,
+} from "react";
 import { useGameState } from "./gameState";
-import CardDisplayBar from "./CardDisplayBar";
+import ConfirmationModal from "./ConfirmationModal";
+import { validateSourceCity, validateTargetCity } from "./PhaserGame";
 
-export default function TargetSelectionUI({ onTargetSelected }) {
+const TargetSelectionUI = forwardRef((props, ref) => {
   const { state, dispatch } = useGameState();
-  const { players, currentPlayerId, cities, turnStep } = state;
+  const { sourceCity, targetCity, currentPlayerId, targetSelectionActive } =
+    state;
+  const [validationFeedback, setValidationFeedback] = useState(null); // "valid" or "invalid"
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-  // State to track selection process
-  const [sourceCitySelected, setSourceCitySelected] = useState(false);
-  const [sourceCity, setSourceCity] = useState(null);
-  const [targetCity, setTargetCity] = useState(null);
-  const [message, setMessage] = useState(
-    "Select one of your cities as the attack source."
-  );
+  // Expose a handleMapClick method via the ref so PhaserGame (via TurnUI) can call it.
+  useImperativeHandle(ref, () => ({
+    handleMapClick: (tile) => {
+      if (!targetSelectionActive) return; // No active selection, ignore click
 
-  // Get current player data
-  const currentPlayer = players.find((p) => p._id === currentPlayerId);
-
-  // Filter cities owned by the current player that can be sources (capital or fortified)
-  const eligibleSourceCities = cities.filter((city) => {
-    return (
-      city.playerId === currentPlayerId &&
-      (city.type === "Capital City" || city.type === "Fortified City")
-    );
-  });
-
-  // Filter cities owned by enemy players (can be any type)
-  const enemyCities = cities.filter(
-    (city) => city.playerId !== currentPlayerId
-  );
-
-  // Handle when a city is clicked on the map
-  useEffect(() => {
-    if (turnStep !== 5) return; // Only process during target selection step
-
-    const handleMapCityClick = (tileInfo) => {
-      // Check if the clicked tile contains a city
-      const clickedCity = cities.find(
-        (city) => city.x === tileInfo.x && city.y === tileInfo.y
-      );
-
-      if (!clickedCity) return; // Not a city tile
-
-      if (!sourceCitySelected) {
-        // First selection - Source city (must be owned by current player and eligible)
-        const isEligibleSource = eligibleSourceCities.find(
-          (city) => city.x === tileInfo.x && city.y === tileInfo.y
-        );
-
-        if (isEligibleSource) {
-          setSourceCity(clickedCity);
-          setSourceCitySelected(true);
-          setMessage("Now select an enemy city to attack.");
-          // Highlight source city on the map
-          dispatch({ type: "SET_SOURCE_CITY", payload: clickedCity });
-        } else if (clickedCity.playerId === currentPlayerId) {
-          setMessage(
-            "This city can't be used as an attack source. Select a Capital or Fortified City."
-          );
+      let isValid = false;
+      if (targetSelectionActive === "source") {
+        isValid = validateSourceCity(tile, state, currentPlayerId);
+        if (isValid) {
+          dispatch({ type: "SET_SOURCE_CITY", payload: tile });
         }
-      } else {
-        // Second selection - Target city (must be enemy city)
-        if (clickedCity.playerId !== currentPlayerId) {
-          setTargetCity(clickedCity);
-          setMessage(
-            `Targeting ${clickedCity.type} at (${clickedCity.x},${clickedCity.y}) from your city at (${sourceCity.x},${sourceCity.y})`
-          );
-
-          // Send the source and target selection to the server
-          if (onTargetSelected) {
-            onTargetSelected({
-              sourceCity: sourceCity,
-              targetCity: clickedCity,
-            });
-          }
-
-          // Update game state with the selected target
-          dispatch({ type: "SET_TARGET_CITY", payload: clickedCity });
-
-          // Mark the player as ready for this step
-          dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: true });
-        } else {
-          setMessage(
-            "You must select an enemy city as your target. Click on a city owned by another player."
-          );
+      } else if (targetSelectionActive === "target") {
+        isValid = validateTargetCity(tile, state, currentPlayerId);
+        if (isValid) {
+          dispatch({ type: "SET_TARGET_CITY", payload: tile });
         }
       }
-    };
+      setValidationFeedback(isValid ? "valid" : "invalid");
+    },
+    // Optionally, you could expose a pointer-move handler here if you wish to update the highlighter
+    // in real time from within the UI. For now, we let PhaserGame handle pointermove based on global state.
+  }));
 
-    // Add the handleMapCityClick function to the gameState context for PhaserGame to access
-    dispatch({ type: "SET_MAP_CLICK_HANDLER", payload: handleMapCityClick });
-
-    return () => {
-      // Clean up when component unmounts
-      dispatch({ type: "SET_MAP_CLICK_HANDLER", payload: null });
-    };
-  }, [
-    turnStep,
-    sourceCitySelected,
-    sourceCity,
-    cities,
-    currentPlayerId,
-    dispatch,
-    onTargetSelected,
-    eligibleSourceCities,
-  ]);
-
-  // Reset selections if the turn step changes
+  // When both cities are selected, open the confirmation modal.
   useEffect(() => {
-    setSourceCitySelected(false);
-    setSourceCity(null);
-    setTargetCity(null);
-    setMessage("Select one of your cities as the attack source.");
-  }, [turnStep]);
+    if (sourceCity && targetCity) {
+      setShowConfirmModal(true);
+    }
+  }, [sourceCity, targetCity]);
 
-  // Create guidance text based on available cities
-  let guidanceText = "";
-  if (eligibleSourceCities.length === 0) {
-    guidanceText =
-      "You don't have any cities that can launch attacks. Build a Capital or Fortified City first.";
-  } else if (enemyCities.length === 0) {
-    guidanceText = "There are no enemy cities to attack yet.";
-  } else {
-    guidanceText = sourceCitySelected
-      ? "Click on an enemy city to select it as your attack target."
-      : "Click on one of your Capital or Fortified cities to select it as your attack source.";
-  }
+  const handleButtonClick = (selectionType) => {
+    // Dispatch the active selection to the global state.
+    dispatch({ type: "SET_TARGET_SELECTION_ACTIVE", payload: selectionType });
+    setValidationFeedback(null);
+  };
 
-  // Right content for the CardDisplayBar - Reset button
-  const rightContent =
-    sourceCitySelected || targetCity ? (
-      <button
-        onClick={() => {
-          setSourceCitySelected(false);
-          setSourceCity(null);
-          setTargetCity(null);
-          setMessage("Select one of your cities as the attack source.");
-          dispatch({ type: "SET_SOURCE_CITY", payload: null });
-          dispatch({ type: "SET_TARGET_CITY", payload: null });
-        }}
-        className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-      >
-        Reset Selection
-      </button>
-    ) : null;
+  const handleConfirm = () => {
+    // Invoke the parent's callback to send target selection to the server.
+    if (props.onTargetSelected) {
+      props.onTargetSelected({ sourceCity, targetCity });
+    }
+    // Optionally, mark the player as ready for this step.
+    // For example: dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: true });
+    // And clear the active selection.
+    dispatch({ type: "SET_TARGET_SELECTION_ACTIVE", payload: null });
+  };
 
   return (
-    <CardDisplayBar
-      title="Select Attack Source and Target"
-      message={message}
-      rightContent={rightContent}
-    >
-      <div className="target-selection-guidance text-white mb-4">
-        {guidanceText}
+    <div className="absolute bottom-0 right-0 p-4 bg-neutral-800 rounded-lg border border-neutral-600">
+      <h2 className="text-2xl font-bold mb-4 text-white">
+        Select Source and Target Cities
+      </h2>
+      <div className="flex flex-col space-y-4">
+        <button
+          onClick={() => handleButtonClick("source")}
+          className={`px-4 py-2 rounded text-white ${
+            sourceCity
+              ? "bg-green-500"
+              : targetSelectionActive === "source"
+              ? validationFeedback === "invalid"
+                ? "bg-red-500"
+                : "bg-yellow-500"
+              : "bg-gray-700"
+          }`}
+        >
+          {sourceCity ? "Source City Selected" : "Select Source City"}
+        </button>
+        <button
+          onClick={() => handleButtonClick("target")}
+          className={`px-4 py-2 rounded text-white ${
+            targetCity
+              ? "bg-green-500"
+              : targetSelectionActive === "target"
+              ? validationFeedback === "invalid"
+                ? "bg-red-500"
+                : "bg-yellow-500"
+              : "bg-gray-700"
+          }`}
+        >
+          {targetCity ? "Target City Selected" : "Select Target City"}
+        </button>
       </div>
-
-      {sourceCitySelected && (
-        <div className="selection-status text-white">
-          <p className="mb-2">
-            <span className="font-bold">Source City:</span> ({sourceCity.x},{" "}
-            {sourceCity.y})
-          </p>
-          {targetCity && (
-            <p>
-              <span className="font-bold">Target City:</span> ({targetCity.x},{" "}
-              {targetCity.y})
-            </p>
-          )}
-        </div>
+      {showConfirmModal && (
+        <ConfirmationModal
+          isOpen={showConfirmModal}
+          onClose={() => setShowConfirmModal(false)}
+          onConfirm={handleConfirm}
+          title="Confirm Target Selection"
+          message="Are you sure you want to proceed with these source and target cities?"
+          confirmText="Confirm"
+          cancelText="Cancel"
+        />
       )}
-
-      {/* Display visual of cities if needed here */}
-    </CardDisplayBar>
+    </div>
   );
-}
+});
+
+export default TargetSelectionUI;

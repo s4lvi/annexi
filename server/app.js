@@ -1,8 +1,7 @@
-// server/app.js
 const express = require("express");
 const http = require("http");
 const socketio = require("socket.io");
-const mongoose = require("mongoose"); // Require Mongoose
+const mongoose = require("mongoose");
 const cors = require("cors");
 const dotenv = require("dotenv");
 
@@ -10,10 +9,7 @@ const dotenv = require("dotenv");
 mongoose
   .connect(
     process.env.MONGODB_URI || "mongodb://localhost:27017/strategy-game",
-    {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    }
+    { useNewUrlParser: true, useUnifiedTopology: true }
   )
   .then(() => {
     console.log("MongoDB connected");
@@ -42,22 +38,18 @@ const io = socketio(server, {
     methods: ["GET", "POST"],
   },
 });
+
 app.use(cors());
-// Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static files from client folder
-// const path = require("path");
-// app.use(express.static(path.join(__dirname, "../client")));
-
-// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/lobby", lobbyRoutes);
 app.use("/api/match", gameMatchRoutes);
 
-// Socket.IO setup
-require("./socket")(io);
+// Use the refactored socket handlers to attach our event listeners.
+const registerSocketHandlers = require("./socket/index");
+registerSocketHandlers(io);
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

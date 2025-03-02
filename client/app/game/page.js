@@ -137,7 +137,7 @@ export default function GameContainer() {
       socketInitializedRef.current
     )
       return;
-
+    console.log("Initializing socket connection for lobby:", queryLobbyId);
     socket = io(process.env.NEXT_PUBLIC_BACKEND_URL);
     socketInitializedRef.current = true;
     const currentUser = currentUserRef.current || ensureUser();
@@ -235,12 +235,13 @@ export default function GameContainer() {
       if (data.turnStep === 0) {
         console.log("New turn started, resetting city built state");
         dispatch({ type: "SET_CITY_BUILT", payload: false });
-
-        // Also reset any other turn-specific states
         dispatch({ type: "SET_EXPANSION_COMPLETE", payload: false });
         dispatch({ type: "SET_PLACING_CITY", payload: false });
         dispatch({ type: "SET_PLACING_STRUCTURE", payload: false });
         dispatch({ type: "SET_SELECTED_STRUCTURE", payload: null });
+        dispatch({ type: "SET_SOURCE_CITY", payload: null });
+        dispatch({ type: "SET_TARGET_CITY", payload: null });
+        dispatch({ type: "SET_ATTACK_PATH", payload: [] });
       }
 
       dispatch({ type: "SET_LAST_UPDATE", payload: Date.now() });
@@ -367,13 +368,20 @@ export default function GameContainer() {
       });
     });
 
+    socket.on("pathCalculated", (data) => {
+      console.log("Received path:", data.path);
+      // Save the path to your game state
+      dispatch({ type: "SET_ATTACK_PATH", payload: data.path });
+    });
+
     return () => {
       if (socket) {
+        console.log("Disconnecting socket for lobby:", queryLobbyId);
         socket.disconnect();
         socketInitializedRef.current = false;
       }
     };
-  }, [currentPlayerId, queryLobbyId, dispatch, loading, ensureUser]);
+  }, [currentPlayerId, queryLobbyId, loading]);
 
   const handleCityPlacement = (tileInfo) => {
     socket.emit("buildCity", {
@@ -425,6 +433,15 @@ export default function GameContainer() {
     });
   };
 
+  const handleTargetSelected = ({ sourceCity, targetCity }) => {
+    socket.emit("selectTarget", {
+      lobbyId: queryLobbyId,
+      sourceCity,
+      targetCity,
+      _id: currentPlayerId,
+    });
+  };
+
   if (loading || localLoading) {
     return <LoadingScreen message="Loading game..." />;
   }
@@ -450,9 +467,7 @@ export default function GameContainer() {
           onCityPlacement={handleCityPlacement}
           onCardSelected={handleCardSelected}
           onStructurePlacement={handleStructurePlacement}
-          onTargetSelected={(tileInfo) =>
-            console.log("Target selected:", tileInfo)
-          }
+          onTargetSelected={handleTargetSelected}
           uiVisible={uiVisible}
           onArmyQueued={handleArmyQueued}
         />

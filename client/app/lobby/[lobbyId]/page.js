@@ -48,6 +48,7 @@ export default function LobbyRoom() {
 
     if (!socketRef.current) {
       // Initialize socket connection
+      console.log("Initializing socket connection");
       socketRef.current = io(process.env.NEXT_PUBLIC_BACKEND_URL);
 
       socketRef.current.on("lobbyUpdate", (data) => {
@@ -90,6 +91,7 @@ export default function LobbyRoom() {
 
     return () => {
       joinedRef.current = false;
+      console.log("Cleaning up socket connection lobby");
     };
   }, [lobbyId, user, loading, router, dispatch, ensureUser]);
 

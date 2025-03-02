@@ -1,21 +1,19 @@
 // TurnUI.jsx
-import React, { forwardRef, useImperativeHandle } from "react";
+import React, { forwardRef, useImperativeHandle, useRef } from "react";
 import { useGameState } from "./gameState";
 import {
   validateCityPlacement,
   validateStructurePlacement,
 } from "./PhaserGame";
 
-// These components should render the UI for each turn step.
-import CityPlacementUI from "./CityPlacementUI"; // Step 0: Collect resources & place city
-import CardBuyingUI from "./CardBuyingUI"; // Step 1: Buy cards
-import TerritoryExpansionUI from "./TerritoryExpansionUI"; // Step 2: Expand territory
-import StructurePlacementUI from "./StructurePlacementUI"; // Step 3: Place structures
-import ArmyQueueUI from "./ArmyQueueUI"; // Step 4: Queue army
-import TargetSelectionUI from "./TargetSelectionUI"; // Step 5: Select target
-import BattleUI from "./BattleUI"; // Step 6: Battle
+import CityPlacementUI from "./CityPlacementUI"; // Step 0
+import CardBuyingUI from "./CardBuyingUI"; // Step 1
+import TerritoryExpansionUI from "./TerritoryExpansionUI"; // Step 2
+import StructurePlacementUI from "./StructurePlacementUI"; // Step 3
+import ArmyQueueUI from "./ArmyQueueUI"; // Step 4
+import TargetSelectionUI from "./TargetSelectionUI"; // Step 5
+import BattleUI from "./BattleUI"; // Step 6
 
-// Optional: you can also display a label for the current step.
 export const TURN_STEPS = [
   "Collect Resources & Place City",
   "Buy Cards",
@@ -30,9 +28,11 @@ const TurnUI = forwardRef((props, ref) => {
   const { state, dispatch } = useGameState();
   const { turnStep, placingCity, placingStructure } = state;
 
-  // Enhanced map-click handler with validation
+  // Create a local ref for the TargetSelectionUI
+  const targetSelectionRef = useRef(null);
+
+  // Enhanced map-click handler with delegation.
   const handleMapClick = (tileInfo) => {
-    // Step 0: City Placement with validation
     if (turnStep === 0 && placingCity && props.onCityPlacement) {
       const isValid = validateCityPlacement(tileInfo, state);
       if (isValid) {
@@ -40,9 +40,11 @@ const TurnUI = forwardRef((props, ref) => {
         document.body.style.cursor = "default";
         dispatch({ type: "SET_PLACING_CITY", payload: false });
       }
-    }
-    // Step 3: Structure Placement with validation
-    else if (turnStep === 3 && placingStructure && props.onStructurePlacement) {
+    } else if (
+      turnStep === 3 &&
+      placingStructure &&
+      props.onStructurePlacement
+    ) {
       const isValid = validateStructurePlacement(tileInfo, state);
       if (isValid) {
         props.onStructurePlacement(tileInfo, state.selectedStructure);
@@ -50,17 +52,23 @@ const TurnUI = forwardRef((props, ref) => {
         dispatch({ type: "SET_PLACING_STRUCTURE", payload: false });
         dispatch({ type: "SET_SELECTED_STRUCTURE", payload: null });
       }
-    }
-    // Step 5: Target Selection
-    else if (turnStep === 5 && props.onTargetSelected) {
-      props.onTargetSelected(tileInfo);
+    } else if (turnStep === 5) {
+      console.log("TurnUI: handleMapClick", tileInfo);
+      if (
+        targetSelectionRef.current &&
+        typeof targetSelectionRef.current.handleMapClick === "function"
+      ) {
+        targetSelectionRef.current.handleMapClick(tileInfo);
+      }
     }
   };
 
+  // Expose handleMapClick to the parent via the forwarded ref.
   useImperativeHandle(ref, () => ({
     handleMapClick,
   }));
 
+  // Render the appropriate UI component based on turnStep.
   switch (turnStep) {
     case 0:
       return <CityPlacementUI {...props} />;
@@ -73,7 +81,7 @@ const TurnUI = forwardRef((props, ref) => {
     case 4:
       return <ArmyQueueUI {...props} />;
     case 5:
-      return <TargetSelectionUI {...props} />;
+      return <TargetSelectionUI ref={targetSelectionRef} {...props} />;
     case 6:
       return <BattleUI {...props} />;
     default:

@@ -23,6 +23,11 @@ const initialState = {
   turnStep: 0,
   lastUpdate: Date.now(),
   currentPlayerReady: false,
+  sourceCity: null,
+  targetSelectionActive: null,
+  targetCity: null,
+  attackPath: [],
+  mapClickHandler: null,
 };
 
 function gameReducer(state, action) {
@@ -134,6 +139,7 @@ function gameReducer(state, action) {
                   city: {
                     type: action.payload.type,
                     level: action.payload.level,
+                    playerId: action.payload.playerId,
                   },
                 }
               : tile
@@ -172,7 +178,13 @@ function gameReducer(state, action) {
         mapData: state.mapData.map((row) =>
           row.map((tile) =>
             tile.x === action.payload.x && tile.y === action.payload.y
-              ? { ...tile, structures: { type: action.payload.type } }
+              ? {
+                  ...tile,
+                  structures: {
+                    type: action.payload.type,
+                    playerId: action.payload.playerId,
+                  },
+                }
               : tile
           )
         ),
@@ -181,6 +193,20 @@ function gameReducer(state, action) {
       return { ...state, armies: [...state.armies, action.payload] };
     case "RESET_STATE":
       return initialState;
+
+    case "SET_SOURCE_CITY":
+      return { ...state, sourceCity: action.payload };
+
+    case "SET_TARGET_CITY":
+      return { ...state, targetCity: action.payload };
+
+    case "SET_ATTACK_PATH":
+      return { ...state, attackPath: action.payload };
+
+    case "SET_TARGET_SELECTION_ACTIVE":
+      return { ...state, targetSelectionActive: action.payload };
+    case "SET_MAP_CLICK_HANDLER":
+      return { ...state, mapClickHandler: action.payload };
     default:
       return state;
   }

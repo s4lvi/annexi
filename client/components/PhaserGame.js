@@ -35,8 +35,18 @@ export const validateStructurePlacement = (tile, state) => {
   return playerTerritory.some((t) => t.x === tile.x && t.y === tile.y);
 };
 
-const validateTargetSelection = (tile, currentPlayerId) => {
-  return true;
+export const getCityAtTile = (tile, cities) => {
+  return cities.find((city) => city.x === tile.x && city.y === tile.y);
+};
+
+export const validateSourceCity = (tile, state, currentPlayerId) => {
+  const city = getCityAtTile(tile, state.cities);
+  return city && city.playerId === currentPlayerId;
+};
+
+export const validateTargetCity = (tile, state, currentPlayerId) => {
+  const city = getCityAtTile(tile, state.cities);
+  return city && city.playerId !== currentPlayerId;
 };
 
 export default function PhaserGame({
@@ -189,6 +199,7 @@ export default function PhaserGame({
             this.territoryGraphics = this.add.graphics();
             this.adjacencyGraphics = this.add.graphics();
             this.cityGraphics = this.add.graphics();
+            this.pathGraphics = this.add.graphics();
 
             this.cameras.main.setZoom(1);
 
@@ -268,6 +279,7 @@ export default function PhaserGame({
               const turnStep = this.registry.get("turnStep");
               const placingCity = this.registry.get("placingCity");
               const placingStructure = this.registry.get("placingStructure");
+              const activeTargetSelection = currentState.targetSelectionActive;
 
               if (turnStep === 0 && placingCity) {
                 const isValid = validateCityPlacement(tile, currentState);
@@ -275,6 +287,22 @@ export default function PhaserGame({
               } else if (turnStep === 3 && placingStructure) {
                 const isValid = validateStructurePlacement(tile, currentState);
                 highlighter.updateHighlight(tile, isValid);
+              } else if (turnStep === 5 && activeTargetSelection) {
+                let isValid = false;
+                if (activeTargetSelection === "source") {
+                  isValid = validateSourceCity(
+                    tile,
+                    currentState,
+                    currentState.currentPlayerId
+                  );
+                } else if (activeTargetSelection === "target") {
+                  isValid = validateSourceCity(
+                    tile,
+                    currentState,
+                    currentState.currentPlayerId
+                  );
+                }
+                this.highlighter.updateHighlight(tile, isValid);
               } else {
                 highlighter.hideHighlight();
               }
@@ -313,6 +341,7 @@ export default function PhaserGame({
     state.turnStep,
     state.placingCity,
     state.placingStructure,
+    state.targetSelectionActive,
   ]);
 
   // Update Phaser scene with game state changes (cities, territories, structures, etc.)
@@ -489,10 +518,76 @@ export default function PhaserGame({
                 cityImage.setScale(scale);
               }
             });
+
+            if (
+              state.sourceCity &&
+              city.x === state.sourceCity.x &&
+              city.y === state.sourceCity.y
+            ) {
+              // For source, draw a green outline
+              scene.cityGraphics.lineStyle(4, 0x00ff00, 1);
+              scene.cityGraphics.strokeCircle(centerX, centerY, hexRadius);
+            }
+            if (
+              state.targetCity &&
+              city.x === state.targetCity.x &&
+              city.y === state.targetCity.y
+            ) {
+              // For target, draw a red outline
+              scene.cityGraphics.lineStyle(4, 0xff0000, 1);
+              scene.cityGraphics.strokeCircle(centerX, centerY, hexRadius);
+            }
           }
         });
 
         renderAdjacencyLines(scene);
+
+        if (scene.pathGraphics) {
+          scene.pathGraphics.clear();
+        }
+
+        // Render the new path if available
+        console.log("About to render attackPath:", state.attackPath);
+        if (state.attackPath && state.attackPath.length > 0) {
+          console.log("Rendering attackPath:", state.attackPath);
+          const { attackPath } = state;
+          const hexRadius = scene.registry.get("hexRadius");
+          const offsetX = scene.registry.get("offsetX");
+          const offsetY = scene.registry.get("offsetY");
+          const hexWidth = scene.registry.get("hexWidth");
+          const hexHeight = scene.registry.get("hexHeight");
+
+          scene.pathGraphics.lineStyle(3, 0xffaa00, 1);
+          scene.pathGraphics.beginPath();
+
+          attackPath.forEach((tile, index) => {
+            // You may compute the center of the tile using your mapData stored earlier.
+            // For example, if you stored tile.centerX and tile.centerY when rendering map:
+            let centerX, centerY;
+            if (scene.registry.get("mapData")) {
+              const mapData = scene.registry.get("mapData");
+              if (mapData[tile.y] && mapData[tile.y][tile.x]) {
+                centerX = mapData[tile.y][tile.x].centerX;
+                centerY = mapData[tile.y][tile.x].centerY;
+              }
+            }
+            // Alternatively, compute using the same logic as when drawing cities.
+            if (centerX === undefined || centerY === undefined) {
+              centerX = tile.x * (hexWidth * 0.75) + hexRadius + offsetX;
+              centerY =
+                tile.y * hexHeight +
+                (tile.x % 2 ? hexHeight / 2 : 0) +
+                hexHeight / 2 +
+                offsetY;
+            }
+            if (index === 0) {
+              scene.pathGraphics.moveTo(centerX, centerY);
+            } else {
+              scene.pathGraphics.lineTo(centerX, centerY);
+            }
+          });
+          scene.pathGraphics.strokePath();
+        }
       }
     }
   }, [
@@ -504,6 +599,10 @@ export default function PhaserGame({
     state.currentPlayerId,
     mapData,
     state.lastUpdate,
+    state.targetSelectionActive,
+    state.attackPath,
+    state.sourceCity,
+    state.targetCity,
   ]);
 
   useEffect(() => {

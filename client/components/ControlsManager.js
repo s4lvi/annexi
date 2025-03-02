@@ -1,8 +1,7 @@
 export default class ControlsManager {
-  constructor(scene, onMapClick, toggleUiVisibility) {
+  constructor(scene, onMapClick) {
     this.scene = scene;
     this.onMapClick = onMapClick;
-    this.toggleUiVisibility = toggleUiVisibility;
     this.isPanning = false;
     this.previousDistance = null; // Track previous distance for pinch zoom
   }
@@ -36,53 +35,41 @@ export default class ControlsManager {
   }
 
   onPointerDown(pointer) {
-    // Check if we're placing a city or structure
-    const gameState = this.scene.registry.get("gameState");
-    const isPlacing = gameState?.placingCity || gameState?.placingStructure;
-
-    // Handle middle mouse button for panning
+    // Handle middle mouse button specifically for panning
     if (pointer.middleButtonDown()) {
       document.body.style.cursor = "grabbing";
       this.startPan(pointer);
-      // Hide the UI when starting to pan with middle mouse
-      this.toggleUiVisibility(false);
-      return;
+      return; // Exit early to prevent other actions
     }
 
-    // For placement actions, we want to see the map clearly
-    if (isPlacing) {
-      // Hide UI when placing city/structure
-      this.toggleUiVisibility(false);
-    }
-
-    // Check if the click is on a UI element
+    // Check if the click is on a UI element:
     const element = document.elementFromPoint(pointer.x, pointer.y);
     if (
       element &&
       element.tagName.toLowerCase() !== "canvas" &&
       !element.closest("#phaser-game")
     ) {
-      return; // Let the UI handle this event
+      console.log("UI element clicked:", element);
+      return; // Let the UI handle this event.
     }
 
-    // Handle left click for map interaction
+    // Only trigger onMapClick for left mouse button
     if (pointer.leftButtonDown() && this.onMapClick) {
       const tile = this.getTileAt(pointer.x, pointer.y);
       this.onMapClick(tile);
     }
 
-    // Capture right-click events
+    // Capture right-click events.
     if (pointer.rightButtonDown()) {
       const tile = this.getTileAt(pointer.x, pointer.y);
       console.log("Right-click at", pointer.x, pointer.y, tile);
+      // Add right-click logic here.
       return;
     }
 
-    // Start panning with left button
+    // Start panning with left button only if not doing a multi-touch gesture.
     if (pointer.leftButtonDown() && !this.isMultiTouchActive()) {
       this.startPan(pointer);
-      // Hide the UI when starting to pan
-      this.toggleUiVisibility(false);
     }
   }
 
@@ -114,39 +101,31 @@ export default class ControlsManager {
       this.previousDistance = null;
     }
 
-    // Process panning
+    // If not multi-touch, process panning.
     if (this.isPanning) {
       this.updatePan(pointer);
     }
   }
 
   onPointerUp(pointer) {
-    // Check if we need to keep UI hidden for placement mode
-    const gameState = this.scene.registry.get("gameState");
-    const isPlacing = gameState?.placingCity || gameState?.placingStructure;
-
     // Reset cursor to default or crosshair based on game state
     if (document.body.style.cursor === "grabbing") {
-      if (isPlacing) {
+      // Check if we're in city placement or structure placement mode
+      const gameState = this.scene.registry.get("gameState");
+      if (gameState?.placingCity || gameState?.placingStructure) {
         document.body.style.cursor = "crosshair";
       } else {
         document.body.style.cursor = "default";
       }
     }
 
-    // If panning is ending and we're not in placement mode, show the UI again
-    if (this.isPanning && !isPlacing) {
-      this.toggleUiVisibility(true);
-    }
-
-    // Reset pinch zoom tracking
+    // Reset pinch zoom tracking when fingers are lifted.
     const activePointers = this.scene.input.manager.pointers.filter(
       (p) => p.isDown
     );
     if (activePointers.length < 2) {
       this.previousDistance = null;
     }
-
     if (this.isPanning) {
       this.endPan();
     }
@@ -209,17 +188,12 @@ export default class ControlsManager {
       (effectiveY - hexHeight / 2 - offsetYForCol) / hexHeight
     );
 
-    // Retrieve mapData stored in the registry
+    // Retrieve mapData stored in the registry (set it in PhaserGame's create).
     const mapData = this.scene.registry.get("mapData");
     let tile = { col: approxCol, row: approxRow, type: "unknown" };
     if (mapData && mapData[approxRow] && mapData[approxRow][approxCol]) {
       tile = { ...tile, ...mapData[approxRow][approxCol] };
     }
     return tile;
-  }
-
-  // Clean up
-  destroy() {
-    // No additional cleanup needed for this approach
   }
 }

@@ -1,10 +1,11 @@
-// server/socketHandlers.js
+// server/socket/index.js
 const lobbyManager = require("./gameLobby");
 const turnManager = require("./turnManager");
 const resourceTerritoryManager = require("./resourceTerritoryManager");
 const cardManager = require("./cardManager");
 const targetBattleManager = require("./targetBattleManager");
 const structureManager = require("./structureManager");
+const { registerCardCollectionHandlers } = require("./cardCollectionHandlers");
 
 // Export a function to register all handlers using the provided io instance.
 module.exports = function registerSocketHandlers(io) {
@@ -30,6 +31,9 @@ module.exports = function registerSocketHandlers(io) {
 
     // Structure events: buildStructure, buildCity, queueArmy
     structureManager.registerHandlers(socket, io, lobbies);
+
+    // Card collection and deck building events
+    registerCardCollectionHandlers(socket, io);
 
     socket.on("disconnect", () => {
       console.log("Client disconnected:", socket.id);

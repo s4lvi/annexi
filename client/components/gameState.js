@@ -3,7 +3,6 @@
 import React, { createContext, useReducer, useContext } from "react";
 
 const initialState = {
-  // Remove the phase property—progress is tracked solely via turnStep.
   placingCity: false,
   cityBuilt: false,
   expansionComplete: false,
@@ -29,10 +28,12 @@ const initialState = {
   attackPath: [],
   mapClickHandler: null,
   battleState: {
-    battleFinished: false, // set when the server signals battle processing is done
+    battleFinished: false,
     battleRendered: false,
-    battleUnits: [], // Each battle unit is an object as described above.
+    battleUnits: [],
   },
+  deckName: "",
+  currency: 0,
 };
 
 function gameReducer(state, action) {
@@ -68,7 +69,11 @@ function gameReducer(state, action) {
     case "SET_PLAYERS":
       return { ...state, players: action.payload };
     case "SET_CARDS":
-      return { ...state, currentHand: action.payload.currentHand };
+      return {
+        ...state,
+        currentHand: action.payload.currentHand,
+        deckName: action.payload.deckName || state.deckName,
+      };
     case "UPDATE_CARD_PURCHASE":
       return {
         ...state,
@@ -128,10 +133,22 @@ function gameReducer(state, action) {
                   action.payload.cards !== undefined
                     ? action.payload.cards
                     : player.cards,
+                currency:
+                  action.payload.currency !== undefined
+                    ? action.payload.currency
+                    : player.currency,
               }
             : player
         ),
+        // If the current player's resources are being updated, also update the currency state
+        currency:
+          state.currentPlayerId === action.payload._id &&
+          action.payload.currency !== undefined
+            ? action.payload.currency
+            : state.currency,
       };
+    case "SET_CURRENCY":
+      return { ...state, currency: action.payload };
     case "ADD_CITY":
       return {
         ...state,

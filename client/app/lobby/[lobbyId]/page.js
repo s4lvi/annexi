@@ -9,6 +9,7 @@ import { useGameState } from "@/components/gameState";
 import { useAuth } from "@/components/AuthContext";
 import LoadingScreen from "@/components/LoadingScreen";
 import ColorDropdown from "@/components/ColorDropdown";
+import { useSocket } from "@/components/SocketContext";
 
 export default function LobbyRoom() {
   const router = useRouter();
@@ -17,7 +18,6 @@ export default function LobbyRoom() {
   const [message, setMessage] = useState("");
   const [lobbyName, setLobbyName] = useState("");
   const [localLoading, setLocalLoading] = useState(true);
-  const socketRef = useRef(null);
   const joinedRef = useRef(false);
   const prevLobbyIdRef = useRef(null);
 
@@ -27,6 +27,7 @@ export default function LobbyRoom() {
   // Access the gameState context
   const { dispatch } = useGameState();
 
+  const socket = useSocket();
   useEffect(() => {
     if (loading) return;
 
@@ -46,54 +47,44 @@ export default function LobbyRoom() {
       prevLobbyIdRef.current = lobbyId;
     }
 
-    if (!socketRef.current) {
-      // Initialize socket connection
-      console.log("Initializing socket connection");
-      socketRef.current = io(process.env.NEXT_PUBLIC_BACKEND_URL);
-
-      socketRef.current.on("lobbyUpdate", (data) => {
-        setPlayers(data.players);
-        setMessage(data.message);
-      });
-
-      socketRef.current.on("colorSelectionError", (data) => {
-        setMessage(data.message);
-      });
-
-      socketRef.current.on("playerStateSync", (data) => {
-        // Update message
-        setMessage(data.message);
-
-        // If there's updated state for the current player, we can update UI accordingly
-        // This is handled automatically through the lobbyUpdate event, so we don't need
-        // additional state management here
-      });
-
-      socketRef.current.on("gameStarted", (data) => {
-        console.log("Game started with data:", data);
-        localStorage.setItem("mapData", JSON.stringify(data.mapData));
-        localStorage.setItem("lobbyPlayers", JSON.stringify(data.players));
-        router.push(`/game?lobbyId=${lobbyId}`);
-      });
-    }
-
-    if (!joinedRef.current) {
-      // Ensure we have a valid user by falling back to guest if needed
-      const currentUser = ensureUser();
-
-      socketRef.current.emit("joinLobby", {
+    if (!joinedRef.current && socket) {
+      socket.emit("joinLobby", {
         lobbyId,
-        username: currentUser.username,
-        _id: currentUser._id,
+        username: user.username,
+        _id: user._id,
       });
       joinedRef.current = true;
     }
 
+    socket.on("lobbyUpdate", (data) => {
+      setPlayers(data.players);
+      setMessage(data.message);
+    });
+
+    socket.on("colorSelectionError", (data) => {
+      setMessage(data.message);
+    });
+
+    socket.on("playerStateSync", (data) => {
+      setMessage(data.message);
+    });
+
+    socket.on("gameStarted", (data) => {
+      console.log("Game started with data:", data);
+      localStorage.setItem("mapData", JSON.stringify(data.mapData));
+      localStorage.setItem("lobbyPlayers", JSON.stringify(data.players));
+      router.push(`/game?lobbyId=${lobbyId}`);
+    });
+
     return () => {
+      socket.off("lobbyUpdate");
+      socket.off("colorSelectionError");
+      socket.off("playerStateSync");
+      socket.off("gameStarted");
       joinedRef.current = false;
-      console.log("Cleaning up socket connection lobby");
+      console.log("Cleaning up lobby socket listeners");
     };
-  }, [lobbyId, user, loading, router, dispatch, ensureUser]);
+  }, [lobbyId, user, loading, router, dispatch, socket]);
 
   useEffect(() => {
     if (!lobbyId) return;
@@ -118,9 +109,8 @@ export default function LobbyRoom() {
   }, [lobbyId, router]);
 
   const handleColorSelect = (colorValue) => {
-    if (!socketRef.current || !user) return;
-
-    socketRef.current.emit("selectColor", {
+    if (!socket || !user) return;
+    socket.emit("selectColor", {
       lobbyId,
       _id: user._id,
       colorValue,
@@ -154,7 +144,7 @@ export default function LobbyRoom() {
       );
       const data = await res.json();
       if (res.ok) {
-        socketRef.current.emit("startGame", {
+        socket.emit("startGame", {
           lobbyId,
           matchId: data.match._id,
           mapData: data.mapData,

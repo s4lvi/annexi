@@ -1,6 +1,8 @@
 // app/layout.js
 import { GameStateProvider } from "../components/gameState";
 import { AuthProvider } from "../components/AuthContext";
+import { CardCollectionProvider } from "../components/CardCollectionContext";
+import { SocketProvider } from "@/components/SocketContext";
 import "./globals.css";
 
 export const metadata = {
@@ -38,7 +40,11 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body>
         <AuthProvider>
-          <GameStateProvider>{children}</GameStateProvider>
+          <GameStateProvider>
+            <SocketProvider>
+              <CardCollectionProvider>{children}</CardCollectionProvider>
+            </SocketProvider>
+          </GameStateProvider>
         </AuthProvider>
       </body>
     </html>

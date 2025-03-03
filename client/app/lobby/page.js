@@ -2,203 +2,313 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
-import { RefreshCw, Users, UserPlus, PlayCircle } from "lucide-react";
 import { useAuth } from "@/components/AuthContext";
+import Header from "@/components/Header";
 import LoadingScreen from "@/components/LoadingScreen";
+import {
+  Swords,
+  Users,
+  Plus,
+  Award,
+  ChevronsRight,
+  ChevronRight,
+  BookOpen,
+  Grid3X3,
+  ShoppingCart,
+} from "lucide-react";
 
 export default function LobbyPage() {
   const [lobbies, setLobbies] = useState([]);
-  const [lobbyName, setLobbyName] = useState("");
-  const [message, setMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [newLobbyName, setNewLobbyName] = useState("");
+  const [error, setError] = useState("");
   const router = useRouter();
-  const { user, loading, ensureUser } = useAuth();
-
-  const fetchLobbies = async () => {
-    setIsLoading(true);
-    try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}api/lobby/list`
-      );
-      const data = await res.json();
-      setLobbies(data.lobbies);
-    } catch (err) {
-      console.error(err);
-      setMessage("Failed to fetch lobbies");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const { user, loading: authLoading, ensureUser } = useAuth();
 
   useEffect(() => {
-    if (loading) return;
+    // If auth is still loading, wait
+    if (authLoading) return;
 
+    // Redirect to login if no user
     if (!user) {
-      // Redirect to login if no user is found
       router.push("/");
       return;
     }
 
-    // Initial fetch
+    // Fetch lobbies
     fetchLobbies();
+  }, [authLoading, user, router]);
 
-    // Set up auto-refresh interval - every 1 second
-    const interval = setInterval(fetchLobbies, 1000);
-
-    // Clean up interval on component unmount
-    return () => clearInterval(interval);
-  }, [loading, user, router]);
+  const fetchLobbies = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}api/lobby/list`
+      );
+      const data = await response.json();
+      setLobbies(data.lobbies || []);
+      setLoading(false);
+    } catch (err) {
+      console.error("Error fetching lobbies:", err);
+      setError("Failed to load lobbies. Please try again.");
+      setLoading(false);
+    }
+  };
 
   const handleCreateLobby = async (e) => {
     e.preventDefault();
-
-    // Ensure we have a user, create guest if needed
-    const currentUser = ensureUser();
+    if (!newLobbyName.trim()) {
+      setError("Please enter a lobby name");
+      return;
+    }
 
     try {
-      const res = await fetch(
+      // Ensure we have a valid user
+      const currentUser = ensureUser();
+
+      const response = await fetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}api/lobby/create`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ hostUserId: currentUser._id, lobbyName }),
+          body: JSON.stringify({
+            lobbyName: newLobbyName,
+            hostUserId: currentUser._id,
+          }),
         }
       );
-      const data = await res.json();
-      if (res.ok) {
-        setMessage("Lobby created successfully");
+      const data = await response.json();
+      if (response.ok) {
         router.push(`/lobby/${data.lobby._id}`);
       } else {
-        setMessage(data.message);
+        setError(data.message || "Failed to create lobby");
       }
     } catch (err) {
-      console.error(err);
-      setMessage("Error connecting to server");
+      console.error("Error creating lobby:", err);
+      setError("Failed to create lobby. Please try again.");
     }
   };
 
-  const joinLobby = (lobbyId) => {
-    // Ensure we have a user before joining
-    ensureUser();
+  const handleJoinLobby = (lobbyId) => {
     router.push(`/lobby/${lobbyId}`);
   };
 
-  if (loading) {
+  if (authLoading || (loading && !error)) {
     return <LoadingScreen message="Loading lobbies..." />;
   }
 
   return (
-    <div className="min-h-screen bg-neutral-900 flex flex-col">
+    <div className="min-h-screen bg-neutral-900 text-neutral-100">
       <Header />
 
-      <main className="container mx-auto px-4 py-8 flex-grow">
-        <div className="grid md:grid-cols-3 gap-8">
-          {/* Lobbies List */}
-          <div className="md:col-span-2">
-            <div className="bg-neutral-800 rounded-xl shadow-gold p-6 border border-secondary-500/20">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-3xl font-bold text-secondary-400">
-                  Available Lobbies
-                </h2>
-                <button
-                  onClick={fetchLobbies}
-                  className="flex items-center gap-2 px-4 py-2 bg-neutral-700 hover:bg-neutral-600 text-neutral-200 rounded-lg transition-colors"
-                  disabled={isLoading}
-                >
-                  <RefreshCw
-                    className={`w-5 h-5 ${isLoading ? "animate-spin" : ""}`}
+      <div className="container mx-auto px-4 py-8">
+        <div className="grid md:grid-cols-12 gap-8">
+          {/* Main game lobbies section */}
+          <div className="md:col-span-7">
+            <div className="mb-8">
+              <h2 className="text-3xl font-bold text-secondary-400 mb-6 flex items-center">
+                <Swords className="mr-3 h-8 w-8" />
+                Match Lobbies
+              </h2>
+
+              {/* Create lobby form */}
+              <form
+                onSubmit={handleCreateLobby}
+                className="bg-neutral-800 p-6 rounded-xl border border-neutral-700 shadow-gold mb-6"
+              >
+                <h3 className="text-xl font-semibold text-neutral-200 mb-4">
+                  Create New Match
+                </h3>
+                {error && (
+                  <div className="bg-red-900/20 border border-red-500 text-red-400 px-4 py-3 rounded-lg mb-4">
+                    {error}
+                  </div>
+                )}
+                <div className="flex items-center space-x-4">
+                  <input
+                    type="text"
+                    value={newLobbyName}
+                    onChange={(e) => setNewLobbyName(e.target.value)}
+                    placeholder="Enter battle name..."
+                    className="flex-grow p-3 bg-neutral-700 rounded-lg border border-neutral-600 focus:border-secondary-500 focus:outline-none text-neutral-200"
                   />
-                  <span className="hidden sm:inline">Refresh</span>
-                </button>
-              </div>
-
-              {message && (
-                <div className="bg-accent-900/20 border border-accent-500 text-accent-400 px-4 py-3 rounded-lg mb-6">
-                  {message}
+                  <button
+                    type="submit"
+                    className="py-3 px-6 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-semibold transition-all flex items-center shadow-gold hover:shadow-gold-lg"
+                  >
+                    <Plus className="mr-2 h-5 w-5" /> Create
+                  </button>
                 </div>
-              )}
+              </form>
 
-              <div className="space-y-4">
+              {/* Lobbies list */}
+              <div className="bg-neutral-800 rounded-xl border border-neutral-700 shadow-gold">
+                <div className="p-4 border-b border-neutral-700 flex justify-between items-center">
+                  <h3 className="text-xl font-semibold text-neutral-200 flex items-center">
+                    <Users className="mr-2 h-5 w-5 text-neutral-400" />
+                    Available Matches
+                  </h3>
+                  <button
+                    onClick={fetchLobbies}
+                    className="p-2 hover:bg-neutral-700 rounded-full transition-colors"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-5 w-5 text-neutral-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                  </button>
+                </div>
+
                 {lobbies.length === 0 ? (
-                  <div className="text-center py-8 text-neutral-400">
-                    <Users className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>No active lobbies found. Create one to get started!</p>
+                  <div className="p-8 text-center text-neutral-400">
+                    <div className="flex justify-center mb-4">
+                      <Swords className="h-12 w-12 text-neutral-500" />
+                    </div>
+                    <p className="text-lg mb-2">No active battle rooms found</p>
+                    <p>Create a new battle or try refreshing the list.</p>
                   </div>
                 ) : (
-                  lobbies.map((lobby) => (
-                    <div
-                      key={lobby._id}
-                      className="flex items-center justify-between p-4 bg-neutral-700 rounded-lg border border-neutral-600 hover:border-secondary-500 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-neutral-800 rounded-full">
-                          <Users className="w-5 h-5 text-secondary-400" />
-                        </div>
+                  <div className="divide-y divide-neutral-700">
+                    {lobbies.map((lobby) => (
+                      <div
+                        key={lobby._id}
+                        className="p-4 hover:bg-neutral-700/30 transition-colors flex justify-between items-center"
+                      >
                         <div>
-                          <h3 className="font-semibold text-neutral-200">
+                          <h4 className="font-medium text-neutral-200">
                             {lobby.name}
-                          </h3>
+                          </h4>
                           <p className="text-sm text-neutral-400">
-                            {lobby.players?.length || 1} player
-                            {(lobby.players?.length || 1) !== 1 ? "s" : ""}
+                            {lobby.players?.length || 0} players
                           </p>
                         </div>
+                        <button
+                          onClick={() => handleJoinLobby(lobby._id)}
+                          className="py-2 px-4 bg-secondary-600 hover:bg-secondary-700 text-white rounded-lg transition-all flex items-center shadow-lg hover:shadow-xl"
+                        >
+                          Join <ChevronRight className="ml-1 h-4 w-4" />
+                        </button>
                       </div>
-                      <button
-                        onClick={() => joinLobby(lobby._id)}
-                        className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors shadow-gold hover:shadow-gold-lg"
-                      >
-                        <PlayCircle className="w-5 h-5" />
-                        <span className="hidden sm:inline">Join</span>
-                      </button>
-                    </div>
-                  ))
+                    ))}
+                  </div>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Create Lobby Form */}
-          <div className="md:col-span-1">
-            <div className="bg-neutral-800 rounded-xl shadow-gold p-6 border border-secondary-500/20">
-              <div className="flex items-center gap-3 mb-6">
-                <UserPlus className="w-6 h-6 text-secondary-400" />
-                <h3 className="text-xl font-bold text-secondary-400">
-                  Create New Lobby
-                </h3>
+          {/* Card Collection & Deck Builder Section */}
+          <div className="md:col-span-5">
+            <h2 className="text-3xl font-bold text-secondary-400 mb-6 flex items-center">
+              <Award className="mr-3 h-8 w-8" />
+              Card Collection
+            </h2>
+
+            <div className="space-y-4">
+              {/* Deck Builder */}
+              <div
+                className="bg-neutral-800 p-6 rounded-xl border border-neutral-700 shadow-gold hover:shadow-gold-lg transition-all cursor-pointer group"
+                onClick={() => router.push("/decks")}
+              >
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center">
+                    <div className="p-3 bg-neutral-700 rounded-full">
+                      <BookOpen className="w-6 h-6 text-primary-400" />
+                    </div>
+                    <div className="ml-4">
+                      <h3 className="text-xl font-semibold text-neutral-200 group-hover:text-primary-400 transition-colors">
+                        Deck Builder
+                      </h3>
+                      <p className="text-neutral-400">
+                        Create and manage your battle decks
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronsRight className="w-6 h-6 text-neutral-500 group-hover:text-primary-400 transition-colors" />
+                </div>
               </div>
 
-              <form onSubmit={handleCreateLobby} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-neutral-300 mb-1">
-                    Lobby Name
-                  </label>
-                  <input
-                    type="text"
-                    value={lobbyName}
-                    onChange={(e) => setLobbyName(e.target.value)}
-                    className="w-full px-4 py-2 bg-neutral-700 border border-neutral-600 text-neutral-100 rounded-lg focus:ring-2 focus:ring-secondary-500 focus:border-secondary-500"
-                    placeholder="Enter a lobby name"
-                    required
-                  />
+              {/* Card Collection */}
+              <div
+                className="bg-neutral-800 p-6 rounded-xl border border-neutral-700 shadow-gold hover:shadow-gold-lg transition-all cursor-pointer group"
+                onClick={() => router.push("/collection")}
+              >
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center">
+                    <div className="p-3 bg-neutral-700 rounded-full">
+                      <Grid3X3 className="w-6 h-6 text-secondary-400" />
+                    </div>
+                    <div className="ml-4">
+                      <h3 className="text-xl font-semibold text-neutral-200 group-hover:text-secondary-400 transition-colors">
+                        Card Collection
+                      </h3>
+                      <p className="text-neutral-400">
+                        Browse your owned cards and stats
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronsRight className="w-6 h-6 text-neutral-500 group-hover:text-secondary-400 transition-colors" />
                 </div>
+              </div>
 
-                <button
-                  type="submit"
-                  className="w-full flex items-center justify-center gap-2 bg-secondary-500 hover:bg-secondary-600 text-neutral-900 py-3 rounded-lg font-semibold transition-colors shadow-gold hover:shadow-gold-lg"
-                >
-                  <UserPlus className="w-5 h-5" />
-                  Create Lobby
-                </button>
-              </form>
+              {/* Card Shop */}
+              <div
+                className="bg-neutral-800 p-6 rounded-xl border border-neutral-700 shadow-gold hover:shadow-gold-lg transition-all cursor-pointer group"
+                onClick={() => router.push("/shop")}
+              >
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center">
+                    <div className="p-3 bg-neutral-700 rounded-full">
+                      <ShoppingCart className="w-6 h-6 text-amber-400" />
+                    </div>
+                    <div className="ml-4">
+                      <h3 className="text-xl font-semibold text-neutral-200 group-hover:text-amber-400 transition-colors">
+                        Card Shop
+                      </h3>
+                      <p className="text-neutral-400">
+                        Buy new cards and packs with your currency
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronsRight className="w-6 h-6 text-neutral-500 group-hover:text-amber-400 transition-colors" />
+                </div>
+              </div>
+
+              {/* User Profile */}
+              <div
+                className="bg-neutral-800 p-6 rounded-xl border border-neutral-700 shadow-gold hover:shadow-gold-lg transition-all cursor-pointer group"
+                onClick={() => router.push("/profile")}
+              >
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center">
+                    <div className="p-3 bg-neutral-700 rounded-full">
+                      <Users className="w-6 h-6 text-purple-400" />
+                    </div>
+                    <div className="ml-4">
+                      <h3 className="text-xl font-semibold text-neutral-200 group-hover:text-purple-400 transition-colors">
+                        User Profile
+                      </h3>
+                      <p className="text-neutral-400">
+                        View your stats and manage account settings
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronsRight className="w-6 h-6 text-neutral-500 group-hover:text-purple-400 transition-colors" />
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </main>
-
-      <Footer />
+      </div>
     </div>
   );
 }

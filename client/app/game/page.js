@@ -11,6 +11,7 @@ import LoadingScreen from "@/components/LoadingScreen";
 import { CreditCard } from "lucide-react";
 import CardInventoryModal from "../../components/CardInventoryModal";
 import ReadyButton from "@/components/ReadyButton";
+import { useSocket } from "@/components/SocketContext";
 
 // Optional: for labeling steps in the ready button.
 const TURN_STEPS = [
@@ -46,6 +47,7 @@ export default function GameContainer() {
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
   const phaserGameRef = useRef(null);
+  const socket = useSocket();
   const toggleUiVisibility = (visible) => {
     console.log("Toggling UI visibility to:", visible);
     setUiVisible(visible);
@@ -138,7 +140,7 @@ export default function GameContainer() {
     )
       return;
     console.log("Initializing socket connection for lobby:", queryLobbyId);
-    socket = io(process.env.NEXT_PUBLIC_BACKEND_URL);
+    //socket = io(process.env.NEXT_PUBLIC_BACKEND_URL);
     socketInitializedRef.current = true;
     const currentUser = currentUserRef.current || ensureUser();
 

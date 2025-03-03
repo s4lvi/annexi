@@ -1,4 +1,8 @@
 // server/gameLobby.js
+const mongoose = require("mongoose");
+const cardManager = require("./cardManager");
+const { getDefaultDeck } = require("../controllers/deckService");
+const { getCardsByIds } = require("../controllers/cardService");
 
 const PLAYER_COLORS = [
   { name: "Red", value: 0xed6a5a, hexString: "#ed6a5a" },
@@ -35,8 +39,40 @@ function initLobby(lobbyId) {
   };
 }
 
-function registerHandlers(socket, io, lobbies) {
-  socket.on("joinLobby", (data) => {
+// Get player's default deck or create a fallback deck
+async function getPlayerDeck(userId) {
+  try {
+    // Try to get the player's default deck
+    const defaultDeck = await getDefaultDeck(userId);
+
+    if (defaultDeck && defaultDeck.cards && defaultDeck.cards.length > 0) {
+      console.log(`Using player's default deck: ${defaultDeck.name}`);
+      // Convert the player's deck to the game format
+      const gameReadyDeck = await cardManager.initializePlayerDeckFromUserDeck({
+        cards: await getCardsByIds(defaultDeck.cards),
+      });
+
+      return {
+        deck: gameReadyDeck,
+        deckId: defaultDeck._id,
+        deckName: defaultDeck.name,
+      };
+    }
+  } catch (error) {
+    console.error(`Error getting default deck for user ${userId}:`, error);
+  }
+
+  // Fallback to standard deck if no user deck is available or on error
+  console.log(`Using fallback standard deck for player ${userId}`);
+  return {
+    deck: cardManager.initializePlayerDeck(),
+    deckId: null,
+    deckName: "Standard Deck",
+  };
+}
+
+async function registerHandlers(socket, io, lobbies) {
+  socket.on("joinLobby", async (data) => {
     const { lobbyId, username, _id } = data;
     socket.join(`lobby-${lobbyId}`);
     if (!lobbies[lobbyId]) {
@@ -68,6 +104,10 @@ function registerHandlers(socket, io, lobbies) {
     const availableColor =
       PLAYER_COLORS.find((c) => !takenColors.includes(c.value)) ||
       PLAYER_COLORS[0];
+
+    // Get player's default deck or fallback
+    const playerDeckInfo = await getPlayerDeck(_id);
+
     const newPlayer = {
       socketId: socket.id,
       username,
@@ -76,12 +116,15 @@ function registerHandlers(socket, io, lobbies) {
       production: 10,
       gold: 0,
       cities: [],
-      deck: {}, // will be set by the card manager on startGame
+      deck: playerDeckInfo.deck,
+      deckId: playerDeckInfo.deckId,
+      deckName: playerDeckInfo.deckName,
       inventory: [],
       currentHand: [],
       color: availableColor,
       disconnected: false,
     };
+
     lobby.players.push(newPlayer);
     io.to(`lobby-${lobbyId}`).emit("lobbyUpdate", {
       players: lobby.players.map(getSafePlayer),
@@ -121,7 +164,7 @@ function registerHandlers(socket, io, lobbies) {
   });
 
   socket.on("startGame", (data) => {
-    const { lobbyId, mapData } = data;
+    const { lobbyId, mapData, matchId } = data;
     console.log("Starting game for lobby:", lobbyId);
     if (!lobbies[lobbyId]) {
       lobbies[lobbyId] = initLobby(lobbyId);
@@ -129,16 +172,24 @@ function registerHandlers(socket, io, lobbies) {
     const lobby = lobbies[lobbyId];
     lobby.mapData = mapData;
     lobby.phase = "EXPAND";
+    lobby.matchId = matchId;
 
-    // Initialize player decks and deal hands.
-    const cardManager = require("./cardManager");
+    // Deal initial hands to players
     lobby.players.forEach((player) => {
+      // If player doesn't have a deck (unlikely with our new system, but as a fallback)
       if (!player.deck || Object.keys(player.deck).length === 0) {
+        console.log(`Player ${player.username} has no deck, using fallback`);
         player.deck = cardManager.initializePlayerDeck();
       }
+
+      // Deal initial hand
       player.currentHand = cardManager.drawHandFromDeck(player.deck, 7);
+
       if (player.socketId) {
-        io.to(player.socketId).emit("handDealt", { hand: player.currentHand });
+        io.to(player.socketId).emit("handDealt", {
+          hand: player.currentHand,
+          deckName: player.deckName || "Game Deck",
+        });
         console.log(
           "Dealt initial hand to player",
           player.username,
@@ -147,23 +198,51 @@ function registerHandlers(socket, io, lobbies) {
       }
     });
 
-    // Group cards for client display (using baseDeckDefinition from cardManager)
-    const { baseDeckDefinition } = require("./cardManager");
+    // Prepare grouped cards for client display
+    // First combine all unique cards from player decks for this match
+    const allUsedCards = new Set();
+    lobby.players.forEach((player) => {
+      Object.keys(player.deck).forEach((cardId) => allUsedCards.add(cardId));
+    });
+
+    // Then fetch card details and group them
+    const { baseCardsMapping } = require("./cardManager");
     const groupedCards = {
-      citycards: baseDeckDefinition.filter((card) => card.type === "city"),
-      resourcestructures: baseDeckDefinition.filter(
-        (card) => card.type === "resource"
-      ),
-      defensivestructures: baseDeckDefinition.filter(
-        (card) => card.type === "defensive"
-      ),
-      units: baseDeckDefinition.filter((card) => card.type === "unit"),
-      effects: baseDeckDefinition.filter((card) => card.type === "effect"),
+      citycards: [],
+      resourcestructures: [],
+      defensivestructures: [],
+      units: [],
+      effects: [],
     };
+
+    // Group all cards used in this match
+    [...allUsedCards].forEach((cardId) => {
+      const card = baseCardsMapping[cardId];
+      if (card) {
+        switch (card.type) {
+          case "city":
+            groupedCards.citycards.push(card);
+            break;
+          case "resource":
+            groupedCards.resourcestructures.push(card);
+            break;
+          case "defensive":
+            groupedCards.defensivestructures.push(card);
+            break;
+          case "unit":
+            groupedCards.units.push(card);
+            break;
+          case "effect":
+            groupedCards.effects.push(card);
+            break;
+        }
+      }
+    });
 
     io.to(`lobby-${lobbyId}`).emit("gameStarted", {
       mapData,
-      players: lobby.players,
+      matchId,
+      players: lobby.players.map(getSafePlayer),
       phase: lobby.phase,
       cards: groupedCards,
       production: lobby.players[0]?.production,
@@ -186,10 +265,12 @@ function registerHandlers(socket, io, lobbies) {
     }
     const fullState = {
       mapData: lobby.mapData,
+      matchId: lobby.matchId,
       players: lobby.players.map(getSafePlayer),
       turnStep: lobby.turnStep,
       cards: {
         deck: player.deck,
+        deckName: player.deckName,
         inventory: player.inventory,
         currentHand: player.currentHand,
       },
@@ -212,6 +293,43 @@ function registerHandlers(socket, io, lobbies) {
       }
     });
     socket.emit("fullStateUpdate", fullState);
+  });
+
+  // Handle deck viewing - let players see their deck during the game
+  socket.on("viewDeck", (data) => {
+    const { lobbyId, _id } = data;
+    const lobby = lobbies[lobbyId];
+    if (!lobby) return;
+
+    const player = lobby.players.find((p) => p._id === _id);
+    if (!player) return;
+
+    // Convert deck object to array of cards with counts
+    const deckCards = [];
+    for (const [cardId, count] of Object.entries(player.deck)) {
+      const cardInfo = cardManager.baseCardsMapping[cardId];
+      if (cardInfo && count > 0) {
+        deckCards.push({
+          ...cardInfo,
+          remainingCount: count,
+        });
+      }
+    }
+
+    // Sort by type and name
+    deckCards.sort((a, b) => {
+      if (a.type !== b.type) return a.type.localeCompare(b.type);
+      return a.name.localeCompare(b.name);
+    });
+
+    socket.emit("deckDetails", {
+      deckName: player.deckName || "Game Deck",
+      cards: deckCards,
+      cardsRemaining: deckCards.reduce(
+        (sum, card) => sum + card.remainingCount,
+        0
+      ),
+    });
   });
 }
 

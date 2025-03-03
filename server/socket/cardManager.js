@@ -31,6 +31,10 @@ const baseDeckDefinition = [
     type: "defensive",
     cost: { production: 2 },
     count: 5,
+    health: 50,
+    attackDamage: 10,
+    attackRange: 4,
+    attackInterval: 1000,
   },
   {
     id: "defensive-structure-2",
@@ -39,6 +43,7 @@ const baseDeckDefinition = [
     reusable: true,
     cost: { production: 1 },
     count: 20,
+    health: 100,
   },
   {
     id: "defensive-structure-3",
@@ -47,6 +52,10 @@ const baseDeckDefinition = [
     reusable: true,
     cost: { production: 1 },
     count: 10,
+    health: 20,
+    attackDamage: 10,
+    attackRange: 3,
+    attackInterval: 1000,
   },
   {
     id: "army-unit-1",
@@ -55,6 +64,10 @@ const baseDeckDefinition = [
     reusable: false,
     cost: { production: 1 },
     count: 10,
+    health: 50,
+    cityDamage: 10,
+    speed: 0.1,
+    attackInterval: 1000,
   },
   {
     id: "army-unit-2",
@@ -63,8 +76,11 @@ const baseDeckDefinition = [
     reusable: false,
     cost: { production: 2 },
     count: 5,
+    health: 60,
+    cityDamage: 20,
+    speed: 0.1,
+    attackInterval: 1000,
   },
-  // ... add any additional cards
 ];
 
 const baseCardsMapping = {};

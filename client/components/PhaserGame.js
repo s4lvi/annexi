@@ -49,11 +49,169 @@ export const validateTargetCity = (tile, state, currentPlayerId) => {
   return city && city.playerId !== currentPlayerId;
 };
 
+// BattleManager: handles buffering battle updates and smooth interpolation.
+// BattleManager.js
+class BattleManager {
+  constructor(scene, dispatch) {
+    this.scene = scene;
+    this.dispatch = dispatch; // React dispatch from gameState
+    this.units = {};
+    this.updateBuffer = [];
+    this.lastBufferProcessTime = scene.time.now;
+    this.updateInterval = 100;
+    this.maxRenderTime = 5000; // ms
+    this.renderFinishStartTime = null;
+  }
+
+  convertTileToSceneCoordinates(tilePosition) {
+    const hexWidth = this.scene.registry.get("hexWidth");
+    const hexHeight = this.scene.registry.get("hexHeight");
+    const hexRadius = this.scene.registry.get("hexRadius");
+    const offsetX = this.scene.registry.get("offsetX");
+    const offsetY = this.scene.registry.get("offsetY");
+    const x = tilePosition.x * (hexWidth * 0.75) + hexRadius + offsetX;
+    const y =
+      tilePosition.y * hexHeight +
+      (tilePosition.x % 2 ? hexHeight / 2 : 0) +
+      hexHeight / 2 +
+      offsetY;
+    return { x, y };
+  }
+
+  pushUpdate(battleUnits) {
+    console.log(
+      `[BattleManager] pushUpdate called with ${battleUnits.length} unit(s). Data:`,
+      battleUnits
+    );
+    const convertedUnits = battleUnits.map((unitData) => ({
+      unitId: unitData.unitId,
+      position: this.convertTileToSceneCoordinates(unitData.position),
+    }));
+    this.updateBuffer.push({
+      time: this.scene.time.now,
+      units: convertedUnits,
+    });
+  }
+
+  processBuffer() {
+    if (this.updateBuffer.length > 0) {
+      const update = this.updateBuffer.shift();
+      console.log(
+        `[BattleManager] Processing buffered update with ${update.units.length} unit(s) at time ${update.time}`
+      );
+      update.units.forEach((unitData) => {
+        let unit = this.units[unitData.unitId];
+        if (!unit) {
+          console.log(
+            `[BattleManager] Creating new unit with ID: ${unitData.unitId} at position (${unitData.position.x}, ${unitData.position.y})`
+          );
+          const sprite = this.scene.add.circle(
+            unitData.position.x,
+            unitData.position.y,
+            10,
+            0xff0000
+          );
+          unit = {
+            sprite,
+            currentPos: { ...unitData.position },
+            targetPos: { ...unitData.position },
+            interpProgress: 0,
+            interpDuration: this.updateInterval,
+          };
+          this.units[unitData.unitId] = unit;
+        } else {
+          console.log(
+            `[BattleManager] Updating unit with ID: ${unitData.unitId} from position (${unit.sprite.x}, ${unit.sprite.y}) to new target (${unitData.position.x}, ${unitData.position.y})`
+          );
+          unit.currentPos = { x: unit.sprite.x, y: unit.sprite.y };
+          unit.targetPos = { ...unitData.position };
+          unit.interpProgress = 0;
+          unit.interpDuration = this.updateInterval;
+        }
+      });
+      this.lastBufferProcessTime = this.scene.time.now;
+    }
+  }
+
+  finishBattleRendering() {
+    console.log(
+      "[BattleManager] Finishing battle rendering. Clearing battle unit sprites."
+    );
+    Object.values(this.units).forEach((unit) => unit.sprite.destroy());
+    this.units = {};
+    if (this.dispatch) {
+      this.dispatch({ type: "SET_BATTLE_RENDERED", payload: true });
+    }
+  }
+
+  update(delta) {
+    // Process buffered updates if needed.
+    if (
+      this.scene.time.now - this.lastBufferProcessTime >=
+      this.updateInterval
+    ) {
+      this.processBuffer();
+    }
+
+    // Interpolate each unit's position.
+    Object.entries(this.units).forEach(([unitId, unit]) => {
+      unit.interpProgress += delta;
+      const t = Math.min(unit.interpProgress / unit.interpDuration, 1);
+      const newX =
+        unit.currentPos.x + (unit.targetPos.x - unit.currentPos.x) * t;
+      const newY =
+        unit.currentPos.y + (unit.targetPos.y - unit.currentPos.y) * t;
+      unit.sprite.setPosition(newX, newY);
+      console.log(
+        `[BattleManager] Unit ${unitId} position updated to (${newX.toFixed(
+          2
+        )}, ${newY.toFixed(2)}) with progress ${t.toFixed(2)}`
+      );
+
+      // Check the game state. Only remove units if battle is finished but not yet rendered.
+      const gameState = this.scene.registry.get("gameState");
+      if (
+        gameState &&
+        gameState.battleState &&
+        gameState.battleState.battleFinished &&
+        !gameState.battleState.battleRendered &&
+        t === 1
+      ) {
+        unit.sprite.destroy();
+        delete this.units[unitId];
+      }
+    });
+
+    // Only proceed if battleFinished is true and battle hasn't been rendered yet.
+    const gameState = this.scene.registry.get("gameState");
+    if (
+      gameState &&
+      gameState.battleState &&
+      gameState.battleState.battleFinished &&
+      !gameState.battleState.battleRendered
+    ) {
+      // Set renderFinishStartTime the first time we detect battleFinished.
+      if (!this.renderFinishStartTime) {
+        this.renderFinishStartTime = this.scene.time.now;
+      }
+      const currentTime = this.scene.time.now;
+      const noUnitsLeft = Object.keys(this.units).length === 0;
+      if (
+        noUnitsLeft ||
+        currentTime - this.renderFinishStartTime >= this.maxRenderTime
+      ) {
+        this.finishBattleRendering();
+      }
+    }
+  }
+}
+
 export default function PhaserGame({
   mapData,
   matchId,
   onMapClick,
   toggleUiVisibility,
+  socket,
 }) {
   const gameRef = useRef(null);
   const hasInitialized = useRef(false);
@@ -200,6 +358,7 @@ export default function PhaserGame({
             this.adjacencyGraphics = this.add.graphics();
             this.cityGraphics = this.add.graphics();
             this.pathGraphics = this.add.graphics();
+            this.battleGraphics = this.add.graphics();
 
             this.cameras.main.setZoom(1);
 
@@ -307,6 +466,23 @@ export default function PhaserGame({
                 highlighter.hideHighlight();
               }
             });
+
+            this.battleManager = new BattleManager(this);
+
+            // Register socket listener for battle updates if in battle phase.
+            // We assume the socket was passed in as a prop and is attached to the window for accessibility.
+            if (socket && typeof socket.on === "function") {
+              socket.on("battleUpdate", (data) => {
+                if (data && data.battleUnits && this.battleManager) {
+                  this.battleManager.pushUpdate(data.battleUnits);
+                }
+              });
+            }
+          },
+          update: function (time, delta) {
+            if (this.battleManager) {
+              this.battleManager.update(delta);
+            }
           },
         },
       };
@@ -357,6 +533,7 @@ export default function PhaserGame({
       scene.registry.set("placingStructure", state.placingStructure);
       scene.registry.set("gameState", state);
 
+      scene.pathGraphics.clear();
       if (scene.cityGraphics && scene.territoryGraphics) {
         scene.cityGraphics.clear();
         scene.territoryGraphics.clear();
@@ -542,12 +719,6 @@ export default function PhaserGame({
 
         renderAdjacencyLines(scene);
 
-        if (scene.pathGraphics) {
-          scene.pathGraphics.clear();
-        }
-
-        // Render the new path if available
-        console.log("About to render attackPath:", state.attackPath);
         if (state.attackPath && state.attackPath.length > 0) {
           console.log("Rendering attackPath:", state.attackPath);
           const { attackPath } = state;
@@ -603,6 +774,7 @@ export default function PhaserGame({
     state.attackPath,
     state.sourceCity,
     state.targetCity,
+    state.battleState,
   ]);
 
   useEffect(() => {

@@ -45,7 +45,7 @@ export default function GameContainer() {
   const currentUserRef = useRef(null);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
-  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
+  const phaserGameRef = useRef(null);
   const toggleUiVisibility = (visible) => {
     console.log("Toggling UI visibility to:", visible);
     setUiVisible(visible);
@@ -242,6 +242,12 @@ export default function GameContainer() {
         dispatch({ type: "SET_SOURCE_CITY", payload: null });
         dispatch({ type: "SET_TARGET_CITY", payload: null });
         dispatch({ type: "SET_ATTACK_PATH", payload: [] });
+        dispatch({
+          type: "SET_BATTLE_STATE",
+          payload: {
+            battleUnits: [], // Each battle unit is an object as described above.
+          },
+        });
       }
 
       dispatch({ type: "SET_LAST_UPDATE", payload: Date.now() });
@@ -374,6 +380,35 @@ export default function GameContainer() {
       dispatch({ type: "SET_ATTACK_PATH", payload: data.path });
     });
 
+    socket.on("battleUpdate", (data) => {
+      console.log("Battle update received:", data);
+      // Update global battle units.
+      dispatch({ type: "UPDATE_BATTLE_UNITS", payload: data.battleUnits });
+    });
+
+    socket.on("towerFired", (data) => {
+      console.log("Tower fired:", data);
+      // Optionally, update global state or show a visual effect.
+    });
+
+    socket.on("unitAttackedStructure", (data) => {
+      console.log("Unit attacked structure:", data);
+      // Optionally, update state or trigger animations.
+    });
+
+    socket.on("battleResult", (data) => {
+      console.log("Battle result received:", data);
+      setMessage(data.message);
+      // Optionally, update player's resources or mark them ready.
+    });
+
+    socket.on("battleFinished", (data) => {
+      console.log("Battle finished event received:", data);
+      setMessage(data.message);
+      // Update game state to indicate battle processing is done.
+      dispatch({ type: "SET_BATTLE_FINISHED", payload: true });
+    });
+
     return () => {
       if (socket) {
         console.log("Disconnecting socket for lobby:", queryLobbyId);
@@ -382,6 +417,27 @@ export default function GameContainer() {
       }
     };
   }, [currentPlayerId, queryLobbyId, loading]);
+
+  // In GameContainer.jsx
+  useEffect(() => {
+    if (state.battleState.battleRendered) {
+      console.log("Battle rendered; emitting playerReady");
+      socket.emit("playerReady", {
+        lobbyId: queryLobbyId,
+        username: currentPlayer.username,
+        _id: currentPlayerId,
+      });
+      // Optionally, reset battle state so it doesn't fire again.
+      dispatch({ type: "RESET_BATTLE_STATE" });
+    }
+  }, [
+    state.battleState.battleRendered,
+    queryLobbyId,
+    currentPlayer,
+    currentPlayerId,
+    socket,
+    dispatch,
+  ]);
 
   const handleCityPlacement = (tileInfo) => {
     socket.emit("buildCity", {
@@ -453,6 +509,7 @@ export default function GameContainer() {
         matchId={queryLobbyId}
         onMapClick={handleMapClick}
         toggleUiVisibility={toggleUiVisibility}
+        socket={socket}
       />
       <div
         style={{

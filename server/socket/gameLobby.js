@@ -31,7 +31,7 @@ function initLobby(lobbyId) {
     mapData: null,
     phase: null,
     structures: [],
-    // Additional state as needed in the future.
+    battleUnits: [],
   };
 }
 

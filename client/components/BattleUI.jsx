@@ -1,80 +1,53 @@
 // BattleUI.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import CardDisplayBar from "./CardDisplayBar.jsx";
 import { useGameState } from "./gameState";
 import io from "socket.io-client";
 import { useSearchParams } from "next/navigation";
 
 export default function BattleUI() {
-  const [battleProgress, setBattleProgress] = useState(0);
   const { state, dispatch } = useGameState();
-  const { currentPlayerId } = state;
+  const { battleState, players, currentPlayerId } = state;
   const searchParams = useSearchParams();
   const queryLobbyId = searchParams.get("lobbyId");
 
-  // Auto-advance battle progress and trigger next phase
   useEffect(() => {
-    let socket;
-
-    const interval = setInterval(() => {
-      setBattleProgress((prev) => {
-        const newProgress = prev + 4;
-
-        // When battle is complete, auto-ready the player
-        if (newProgress >= 100 && !socket) {
-          clearInterval(interval);
-
-          // Connect to socket to send ready signal
-          socket = io(process.env.NEXT_PUBLIC_BACKEND_URL);
-
-          // Small delay to show 100% complete
-          setTimeout(() => {
-            // Mark player as ready to advance to next phase
-            dispatch({ type: "SET_CURRENT_PLAYER_READY", payload: true });
-
-            // Send playerReady event to server
-            socket.emit("playerReady", {
-              lobbyId: queryLobbyId,
-              _id: currentPlayerId,
-              username: state.players.find((p) => p._id === currentPlayerId)
-                ?.username,
-            });
-
-            // Show message
-            console.log("Battle complete, auto-advancing to next turn");
-          }, 500);
-
-          return 100;
-        }
-
-        return newProgress < 100 ? newProgress : 100;
-      });
-    }, 150);
-
+    const socketClient = io(process.env.NEXT_PUBLIC_BACKEND_URL);
+    socketClient.on("battleUpdate", (data) => {
+      // Update global battle units.
+      dispatch({ type: "UPDATE_BATTLE_UNITS", payload: data.battleUnits });
+    });
+    socketClient.on("towerFired", (data) => {
+      console.log("Tower fired:", data);
+      // Optionally handle visual effects.
+    });
+    socketClient.on("battleResult", (data) => {
+      console.log("Battle result received:", data);
+      // Handle battle results (e.g., apply city damage, notify players).
+    });
     return () => {
-      clearInterval(interval);
-      if (socket) socket.disconnect();
+      socketClient.disconnect();
     };
-  }, [currentPlayerId, queryLobbyId, dispatch, state.players]);
+  }, [queryLobbyId, dispatch]);
 
   return (
-    <>
-      {battleProgress < 100 ? (
-        <div className="absolute bottom-20 left-0 w-full bg-gray-700 rounded-full h-4 my-4">
-          <div
-            className="bg-red-600 h-4 rounded-full transition-all duration-150"
-            style={{ width: `${battleProgress}%` }}
-          ></div>
-        </div>
+    <div className="absolute bottom-0 left-0 w-full bg-gray-700 rounded p-2">
+      {battleState.battleUnits && battleState.battleUnits.length > 0 ? (
+        battleState.battleUnits.map((unit) => (
+          <div key={unit.unitId} className="text-white text-sm">
+            Unit {unit.unitId} (Player {unit.playerId}): {unit.health} HP at (
+            {unit.position.x}, {unit.position.y})
+          </div>
+        ))
       ) : (
-        <div className="absolute bottom-20 left-3 mt-4 text-lg text-white font-bold animate-pulse">
-          Battle Complete! Advancing to next turn...
-        </div>
+        <div className="text-white text-sm">No active battle units</div>
       )}
       <CardDisplayBar
         title="Battle in Progress"
-        message={`Battle calculations: ${battleProgress}%`}
-      ></CardDisplayBar>
-    </>
+        message={`Active units: ${
+          battleState.battleUnits ? battleState.battleUnits.length : 0
+        }`}
+      />
+    </div>
   );
 }

@@ -28,6 +28,11 @@ const initialState = {
   targetCity: null,
   attackPath: [],
   mapClickHandler: null,
+  battleState: {
+    battleFinished: false, // set when the server signals battle processing is done
+    battleRendered: false,
+    battleUnits: [], // Each battle unit is an object as described above.
+  },
 };
 
 function gameReducer(state, action) {
@@ -207,6 +212,56 @@ function gameReducer(state, action) {
       return { ...state, targetSelectionActive: action.payload };
     case "SET_MAP_CLICK_HANDLER":
       return { ...state, mapClickHandler: action.payload };
+    case "SET_BATTLE_STATE":
+      return {
+        ...state,
+        battleState: {
+          ...state.battleState,
+          ...action.payload,
+        },
+      };
+    case "UPDATE_BATTLE_UNITS":
+      return {
+        ...state,
+        battleState: {
+          ...state.battleState,
+          battleUnits: action.payload,
+        },
+      };
+    case "TOWER_FIRED":
+      // Optional: log or trigger effects for tower fire events.
+      return {
+        ...state,
+        battleState: {
+          ...state.battleState,
+          lastTowerEvent: action.payload,
+        },
+      };
+    case "SET_BATTLE_FINISHED":
+      return {
+        ...state,
+        battleState: {
+          ...state.battleState,
+          battleFinished: action.payload,
+        },
+      };
+    case "SET_BATTLE_RENDERED":
+      return {
+        ...state,
+        battleState: {
+          ...state.battleState,
+          battleRendered: action.payload,
+        },
+      };
+    case "RESET_BATTLE_STATE":
+      return {
+        ...state,
+        battleState: {
+          battleFinished: false,
+          battleRendered: false,
+          battleUnits: [],
+        },
+      };
     default:
       return state;
   }

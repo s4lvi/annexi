@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
+import Footer from "@/components/Footer";
 import { RefreshCw, Users, UserPlus, PlayCircle } from "lucide-react";
 import { useAuth } from "@/components/AuthContext";
 import LoadingScreen from "@/components/LoadingScreen";
@@ -40,9 +41,13 @@ export default function LobbyPage() {
       return;
     }
 
+    // Initial fetch
     fetchLobbies();
-    // Set up auto-refresh interval
-    const interval = setInterval(fetchLobbies, 10000);
+
+    // Set up auto-refresh interval - every 1 second
+    const interval = setInterval(fetchLobbies, 1000);
+
+    // Clean up interval on component unmount
     return () => clearInterval(interval);
   }, [loading, user, router]);
 
@@ -85,10 +90,10 @@ export default function LobbyPage() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-900">
+    <div className="min-h-screen bg-neutral-900 flex flex-col">
       <Header />
 
-      <div className="container mx-auto px-4 py-8">
+      <main className="container mx-auto px-4 py-8 flex-grow">
         <div className="grid md:grid-cols-3 gap-8">
           {/* Lobbies List */}
           <div className="md:col-span-2">
@@ -108,6 +113,12 @@ export default function LobbyPage() {
                   <span className="hidden sm:inline">Refresh</span>
                 </button>
               </div>
+
+              {message && (
+                <div className="bg-accent-900/20 border border-accent-500 text-accent-400 px-4 py-3 rounded-lg mb-6">
+                  {message}
+                </div>
+              )}
 
               <div className="space-y-4">
                 {lobbies.length === 0 ? (
@@ -169,6 +180,7 @@ export default function LobbyPage() {
                     value={lobbyName}
                     onChange={(e) => setLobbyName(e.target.value)}
                     className="w-full px-4 py-2 bg-neutral-700 border border-neutral-600 text-neutral-100 rounded-lg focus:ring-2 focus:ring-secondary-500 focus:border-secondary-500"
+                    placeholder="Enter a lobby name"
                     required
                   />
                 </div>
@@ -184,7 +196,9 @@ export default function LobbyPage() {
             </div>
           </div>
         </div>
-      </div>
+      </main>
+
+      <Footer />
     </div>
   );
 }

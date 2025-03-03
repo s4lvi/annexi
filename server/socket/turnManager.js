@@ -2,6 +2,7 @@
 
 const cardManager = require("./cardManager");
 const resourceTerritoryManager = require("./resourceTerritoryManager");
+const { simulateBattle } = require("./targetBattleManager");
 
 // Listen for player readiness events.
 function registerHandlers(socket, io, lobbies) {
@@ -70,7 +71,7 @@ function autoReadyForStep(lobbyId, io, lobbies, step) {
               });
             }
           }
-        } else if (step === 5) {
+        } else if (step === 5 || step === 6) {
           // Auto-ready if no queued army.
           if (!player.queuedArmy || player.queuedArmy.length === 0) {
             player.readyForStep = true;
@@ -111,11 +112,16 @@ function advanceTurn(lobbyId, io, lobbies) {
     if (lobby.turnStep === 2) {
       resourceTerritoryManager.startTerritoryExpansion(lobbyId, io, lobbies);
     }
-    if ([3, 4, 5].includes(lobby.turnStep)) {
+    if ([3, 4, 5, 6].includes(lobby.turnStep)) {
       autoReadyForStep(lobbyId, io, lobbies, lobby.turnStep);
     }
+    if (lobby.turnStep === 6) {
+      console.log("Starting battle phase for lobby", lobbyId);
+      const connectedPlayers = lobby.players.filter((p) => !p.disconnected);
+      console.log("Connected players:", connectedPlayers.length);
+      connectedPlayers.forEach((p) => simulateBattle(lobby, lobbyId, p, io));
+    }
   } else {
-    // At step 6 (Battle phase), resolve battle and reset turn unconditionally.
     io.to(`lobby-${lobbyId}`).emit("stepCompleted", {
       turnStep: lobby.turnStep,
     });

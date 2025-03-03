@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
+import Footer from "@/components/Footer";
 import { UserIcon, MailIcon, LockIcon, Loader } from "lucide-react";
 import { useAuth } from "@/components/AuthContext";
 import LoadingScreen from "@/components/LoadingScreen";
@@ -15,11 +16,23 @@ export default function LoginPage() {
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
-  const { user, loading, login } = useAuth();
+  const { user, loading, login, logout } = useAuth();
 
   useEffect(() => {
-    if (!loading && user) {
+    // Prevent infinite redirects
+    if (loading) return;
+
+    // If user is already logged in with a real account, redirect to lobby
+    if (user && !user.isGuest) {
       router.push("/lobby");
+      return;
+    }
+
+    // If user is a guest account, log them out so they can log in with a real account
+    if (user && user.isGuest) {
+      // Just remove the user from state and localStorage, but don't redirect
+      localStorage.removeItem("user");
+      // We don't call the full logout here since it would navigate away
     }
   }, [user, loading, router]);
 
@@ -49,7 +62,7 @@ export default function LoginPage() {
         login(data.user);
         router.push("/lobby");
       } else {
-        setMessage(data.message);
+        setMessage(data.message || "Authentication failed");
       }
     } catch (err) {
       console.error(err);
@@ -64,9 +77,9 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-900">
+    <div className="min-h-screen bg-neutral-900 flex flex-col">
       <Header />
-      <div className="container mx-auto px-4 py-8 flex justify-center items-center">
+      <div className="container mx-auto px-4 py-8 flex justify-center items-center flex-grow">
         <div className="bg-neutral-800 rounded-xl shadow-gold-lg w-full max-w-md p-8 border border-secondary-500/20">
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-secondary-400 mb-2">
@@ -181,6 +194,7 @@ export default function LoginPage() {
           </form>
         </div>
       </div>
+      <Footer />
     </div>
   );
 }

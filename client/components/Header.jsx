@@ -1,32 +1,27 @@
-// components/Header.js
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Settings, LogOut } from "lucide-react";
 import Image from "next/image";
+import { useAuth } from "@/components/AuthContext";
 
 export default function Header() {
   const [showSettings, setShowSettings] = useState(false);
   const router = useRouter();
+  const { user, logout } = useAuth();
 
   const handleLogout = () => {
-    localStorage.removeItem("user");
-    router.push("/");
+    logout(); // This will also redirect to home page based on your AuthContext
   };
-
-  const user =
-    typeof window !== "undefined"
-      ? JSON.parse(localStorage.getItem("user"))
-      : null;
 
   return (
     <header className="bg-neutral-900 text-neutral-100 shadow-gold border-b border-secondary-500/20">
       <div className="container mx-auto px-4 py-3">
         <div className="flex justify-between items-center">
-          <a
-            href="/"
-            className="text-2xl font-bold text-secondary-400 hover:text-secondary-300 transition-colors flex items-center gap-2"
+          <div
+            onClick={() => router.push(user ? "/lobby" : "/")}
+            className="text-2xl font-bold text-secondary-400 hover:text-secondary-300 transition-colors flex items-center gap-2 cursor-pointer"
           >
             <Image
               src="/annexilogo.png"
@@ -34,9 +29,9 @@ export default function Header() {
               width={64}
               height={64}
               priority
-              className="object-contain "
+              className="object-contain"
             />
-          </a>
+          </div>
 
           <div className="flex items-center gap-4">
             {user && !user.isGuest && (
@@ -67,17 +62,29 @@ export default function Header() {
                   <span className="text-neutral-400">Welcome,</span>{" "}
                   <span className="text-secondary-400">{user.username}</span>
                 </div>
-              </>
-            )}
-            {!user ||
-              (user.isGuest && (
-                <a
-                  href="/login"
-                  className="px-2 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-all shadow-gold hover:shadow-gold-lg"
+                <button
+                  onClick={() => router.push("/login")}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-all shadow-gold hover:shadow-gold-lg"
                 >
                   Login
-                </a>
-              ))}
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 px-4 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-lg transition-all shadow-lg hover:shadow-xl"
+                >
+                  <LogOut className="w-5 h-5" />
+                  <span className="hidden sm:inline">Logout</span>
+                </button>
+              </>
+            )}
+            {!user && (
+              <button
+                onClick={() => router.push("/login")}
+                className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-all shadow-gold hover:shadow-gold-lg"
+              >
+                Login
+              </button>
+            )}
           </div>
         </div>
       </div>

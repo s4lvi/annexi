@@ -42,8 +42,8 @@ export default function ReadyButton({
       onMouseLeave={() => setIsHovered(false)}
       style={{
         position: "fixed",
-        top: "10px",
-        left: "10px",
+        top: "20px",
+        left: "20px",
         maxWidth: "256px",
         maxHeight: "256px",
         width: "20vw",

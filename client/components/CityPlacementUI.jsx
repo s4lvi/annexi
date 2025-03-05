@@ -21,7 +21,7 @@ export default function CityPlacementUI({
   const currentPlayer = players.find((p) => p._id === currentPlayerId);
   const [showPopup, setShowPopup] = useState(true);
 
-  // Effect to ensure placingCity is false when cityBuilt is true
+  // Ensure placingCity is false when cityBuilt becomes true
   useEffect(() => {
     if (cityBuilt && placingCity) {
       dispatch({ type: "SET_PLACING_CITY", payload: false });
@@ -29,14 +29,14 @@ export default function CityPlacementUI({
     }
   }, [cityBuilt, placingCity, dispatch]);
 
-  // When the turnStep changes away from 0, ensure placingCity is false
+  // If turnStep changes away from 0, turn off city placement
   useEffect(() => {
     if (turnStep !== 0 && placingCity) {
       dispatch({ type: "SET_PLACING_CITY", payload: false });
     }
   }, [turnStep, placingCity, dispatch]);
 
-  // Reset showPopup when placingCity changes
+  // Reset showPopup when placingCity becomes active
   useEffect(() => {
     if (placingCity) {
       setShowPopup(true);
@@ -57,7 +57,7 @@ export default function CityPlacementUI({
     if (onCancelPlacement) onCancelPlacement();
   };
 
-  // Determine appropriate title and message based on state
+  // Determine the title and message based on state
   let title = "Place Your City";
   let message = "You can build one city per turn to expand your empire.";
 
@@ -97,24 +97,32 @@ export default function CityPlacementUI({
         </div>
       )}
 
-      <CardDisplayBar
-        title={title}
-        message={message}
-        rightContent={rightContent}
+      {/* Wrapper to fade in/out the CardDisplayBar */}
+      <div
+        style={{
+          opacity: placingCity ? 0 : 1,
+          transition: "opacity 0.3s ease",
+        }}
       >
-        {!cityBuilt && (
-          <GameCard
-            card={baseCityCard}
-            onClick={!placingCity ? handleBuildCityClick : undefined}
-            isDisabled={
-              placingCity ||
-              currentPlayer?.production < baseCityCard.cost.production
-            }
-            ownedCount={0}
-            currentProduction={currentPlayer?.production || 0}
-          />
-        )}
-      </CardDisplayBar>
+        <CardDisplayBar
+          title={title}
+          message={message}
+          rightContent={rightContent}
+        >
+          {!cityBuilt && (
+            <GameCard
+              card={baseCityCard}
+              onClick={!placingCity ? handleBuildCityClick : undefined}
+              isDisabled={
+                placingCity ||
+                currentPlayer?.production < baseCityCard.cost.production
+              }
+              ownedCount={0}
+              currentProduction={currentPlayer?.production || 0}
+            />
+          )}
+        </CardDisplayBar>
+      </div>
     </>
   );
 }

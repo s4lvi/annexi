@@ -36,6 +36,8 @@ function initLobby(lobbyId) {
     phase: null,
     structures: [],
     battleUnits: [],
+    battleSimulationsRemaining: 0,
+    battleFinished: false,
   };
 }
 

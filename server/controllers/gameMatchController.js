@@ -23,8 +23,10 @@ exports.startMatch = async (req, res) => {
     const mapData = generateRandomMap();
     console.log("Generated map data for lobby:", lobbyId);
 
-    // Get player decks
-    const playerDecks = {};
+    // Create an array for playerDecks (not an object)
+    const playerDecks = [];
+    const playerDecksMap = {}; // Keep the object format for gameStateManager
+
     for (const playerId of players) {
       try {
         // Get the player's default deck
@@ -33,15 +35,33 @@ exports.startMatch = async (req, res) => {
         // Get the full card details for each card in the deck
         const cardDetails = await getCardsByIds(deck.cards);
 
-        playerDecks[playerId] = {
+        // Add to array format for the GameMatch model
+        playerDecks.push({
+          userId: playerId, // This is the required field that was missing
+          deckId: deck._id,
+          deckName: deck.name, // Match the field name in the schema
+          cards: deck.cards, // Use card IDs as per the schema
+        });
+
+        // Keep the object format for gameStateManager
+        playerDecksMap[playerId] = {
           deckId: deck._id,
           name: deck.name,
           cards: cardDetails,
         };
       } catch (error) {
         console.error(`Error getting deck for player ${playerId}:`, error);
+
+        // Add fallback to array as well
+        playerDecks.push({
+          userId: playerId,
+          deckId: null,
+          deckName: "Default",
+          cards: [],
+        });
+
         // Fallback to empty deck if there's an error
-        playerDecks[playerId] = {
+        playerDecksMap[playerId] = {
           deckId: null,
           name: "Default",
           cards: [],
@@ -54,7 +74,7 @@ exports.startMatch = async (req, res) => {
       lobbyId,
       hostUserId,
       players,
-      playerDecks, // Store the decks used for this match
+      playerDecks, // Now using the array format
     });
     await newMatch.save();
 
@@ -62,13 +82,13 @@ exports.startMatch = async (req, res) => {
     await lobby.save();
 
     // Save the volatile game state in memory
-    gameStateManager.createGameState(newMatch._id, mapData, playerDecks);
+    gameStateManager.createGameState(newMatch._id, mapData, playerDecksMap);
 
     res.status(201).json({
       message: "Game match started",
       match: newMatch,
-      mapData, // this could be sent to the host immediately, and then to other players via socket.io
-      playerDecks, // Include the decks in the response
+      mapData,
+      playerDecks: playerDecksMap, // Keep the same response format
     });
   } catch (err) {
     console.error(err);

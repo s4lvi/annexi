@@ -31,6 +31,7 @@ const initialState = {
     battleFinished: false,
     battleRendered: false,
     battleUnits: [],
+    towerEvents: [],
   },
   deckName: "",
   currency: 0,
@@ -245,13 +246,24 @@ function gameReducer(state, action) {
           battleUnits: action.payload,
         },
       };
-    case "TOWER_FIRED":
-      // Optional: log or trigger effects for tower fire events.
+    case "ADD_TOWER_EVENTS":
       return {
         ...state,
         battleState: {
           ...state.battleState,
-          lastTowerEvent: action.payload,
+          towerEvents: [
+            ...(state.battleState.towerEvents || []),
+            ...action.payload,
+          ],
+        },
+      };
+
+    case "CLEAR_TOWER_EVENTS":
+      return {
+        ...state,
+        battleState: {
+          ...state.battleState,
+          towerEvents: [],
         },
       };
     case "SET_BATTLE_FINISHED":

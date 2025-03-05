@@ -25,6 +25,13 @@ function registerHandlers(socket, io, lobbies) {
 function checkAllReady(lobbyId, io, lobbies) {
   const lobby = lobbies[lobbyId];
   if (!lobby) return;
+
+  // NEW: Don't auto-advance if preventAutoAdvance flag is set
+  if (lobby.preventAutoAdvance) {
+    console.log("Auto-advance prevented for lobby", lobbyId);
+    return;
+  }
+
   const connectedPlayers = lobby.players.filter((p) => !p.disconnected);
   const allReady = connectedPlayers.every((p) => p.readyForStep);
   if (allReady) {
@@ -38,6 +45,13 @@ function checkAllReady(lobbyId, io, lobbies) {
 function autoReadyForStep(lobbyId, io, lobbies, step) {
   const lobby = lobbies[lobbyId];
   if (!lobby) return;
+
+  // NEW: Don't auto-ready if preventAutoAdvance flag is set
+  if (lobby.preventAutoAdvance) {
+    console.log("Auto-ready prevented for lobby", lobbyId);
+    return;
+  }
+
   setTimeout(() => {
     let autoReadyTriggered = false;
     const connectedPlayers = lobby.players.filter((p) => !p.disconnected);
@@ -71,7 +85,7 @@ function autoReadyForStep(lobbyId, io, lobbies, step) {
               });
             }
           }
-        } else if (step === 5 || step === 6) {
+        } else if (step === 5) {
           // Auto-ready if no queued army.
           if (!player.queuedArmy || player.queuedArmy.length === 0) {
             player.readyForStep = true;
@@ -79,6 +93,18 @@ function autoReadyForStep(lobbyId, io, lobbies, step) {
             if (player.socketId) {
               io.to(player.socketId).emit("autoReady", {
                 message: "No army queued. Skipping target selection.",
+              });
+            }
+          }
+        } else if (step === 6) {
+          // Auto-ready if no battle plan.
+          if (!player.battlePlan || !player.battlePlan.path) {
+            player.readyForStep = true;
+            autoReadyTriggered = true;
+            lobby.battleSimulationsRemaining--;
+            if (player.socketId) {
+              io.to(player.socketId).emit("autoReady", {
+                message: "No battle plan. Skipping battle setup.",
               });
             }
           }
@@ -97,11 +123,13 @@ function autoReadyForStep(lobbyId, io, lobbies, step) {
 function advanceTurn(lobbyId, io, lobbies) {
   const lobby = lobbies[lobbyId];
   if (!lobby) return;
+
   if (lobby.turnLock) {
     console.log("Turn already advancing for lobby", lobbyId);
     return;
   }
   lobby.turnLock = true;
+
   if (lobby.turnStep < 6) {
     lobby.turnStep++;
     io.to(`lobby-${lobbyId}`).emit("stepCompleted", {
@@ -115,26 +143,68 @@ function advanceTurn(lobbyId, io, lobbies) {
     if ([3, 4, 5, 6].includes(lobby.turnStep)) {
       autoReadyForStep(lobbyId, io, lobbies, lobby.turnStep);
     }
+
     if (lobby.turnStep === 6) {
+      // DO NOT ADVANCE TURN OR START NEW TURN HERE
       console.log("Starting battle phase for lobby", lobbyId);
       const connectedPlayers = lobby.players.filter((p) => !p.disconnected);
       console.log("Connected players:", connectedPlayers.length);
-      connectedPlayers.forEach((p) => simulateBattle(lobby, lobbyId, p, io));
+
+      // Set up a counter to track battle simulation completions.
+
+      connectedPlayers.forEach((p) => {
+        simulateBattle(lobby, lobbyId, p, io, () => {
+          lobby.battleSimulationsRemaining--;
+          console.log(
+            `Battle simulation complete for player ${p._id}. Remaining: ${lobby.battleSimulationsRemaining}`
+          );
+          if (lobby.battleSimulationsRemaining <= 0) {
+            // All battle simulations have finished.
+            lobby.battleFinished = true;
+            // Instead of calling advanceTurn here, emit an event.
+            io.to(`lobby-${lobbyId}`).emit("battlePhaseComplete", {
+              message: "Battle phase complete",
+            });
+          }
+        });
+      });
+      lobby.turnLock = false;
+      return; // Exit immediately; do not call advanceTurn here.
     }
+    lobby.turnLock = false;
   } else {
-    io.to(`lobby-${lobbyId}`).emit("stepCompleted", {
-      turnStep: lobby.turnStep,
-    });
-    console.log(`Resolving battle phase for lobby ${lobbyId}`);
-    setTimeout(() => {
+    // Final else block: turnStep is 6 or greater.
+    console.log(lobby.battleFinished, lobby.battleSimulationsRemaining);
+    if (lobby.battleFinished || lobby.battleSimulationsRemaining <= 0) {
+      io.to(`lobby-${lobbyId}`).emit("stepCompleted", {
+        turnStep: lobby.turnStep,
+      });
+      console.log(`Resolving battle phase for lobby ${lobbyId}`);
+
+      if (lobby.battleUnits && lobby.battleUnits.length > 0) {
+        console.log(
+          `Clearing ${lobby.battleUnits.length} remaining battle units`
+        );
+        lobby.battleUnits = [];
+      }
+
+      lobby.players.forEach((player) => {
+        player.battlePlan = null;
+        player.queuedArmy = [];
+      });
+
       lobby.turnStarted = false;
       lobby.turnStep = 0;
+
+      const connectedPlayers = lobby.players.filter((p) => !p.disconnected);
+      lobby.battleSimulationsRemaining = connectedPlayers.length;
+      // Call startNewTurn ONLY in this final else block.
       startNewTurn(lobbyId, io, lobbies);
-      lobby.turnLock = false;
-    }, 1000);
+      lobby.battleFinished = false;
+    }
+    lobby.turnLock = false;
     return;
   }
-  lobby.turnLock = false;
 }
 
 // Start a new turn: reset ready flags, collect resources, and deal new hands.
@@ -185,6 +255,14 @@ function startNewTurn(lobbyId, io, lobbies) {
       }
     }
   });
+
+  // NEW: Add a cooldown period to prevent auto-advancement
+  lobby.preventAutoAdvance = true;
+  console.log("Auto-advance prevention enabled for lobby", lobbyId);
+  setTimeout(() => {
+    lobby.preventAutoAdvance = false;
+    console.log("Auto-advance prevention disabled for lobby", lobbyId);
+  }, 3000); // 3-second cooldown
 }
 
 function computePlayerProduction(player) {

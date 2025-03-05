@@ -81,10 +81,7 @@ body {
 @media (max-width: 600px) {
   .mobile-scale-container {
     position: absolute;
-    transform: scale(0.5);
     bottom: 10%;
-    left: -50%;
-    width: 200vw;
     display: inline-block; 
     overflow: visible;
   }

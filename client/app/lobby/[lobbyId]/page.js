@@ -27,7 +27,8 @@ export default function LobbyRoom() {
   // Access the gameState context
   const { dispatch } = useGameState();
 
-  const socket = useSocket();
+  const { socket } = useSocket();
+  // Updated useEffect for joining lobby
   useEffect(() => {
     if (loading) return;
 
@@ -45,9 +46,12 @@ export default function LobbyRoom() {
       console.log("Resetting game state for new lobby:", lobbyId);
       dispatch({ type: "RESET_STATE" });
       prevLobbyIdRef.current = lobbyId;
+      // Reset joined flag when lobby changes
+      joinedRef.current = false;
     }
 
-    if (!joinedRef.current && socket) {
+    if (!joinedRef.current && socket && socket.connected) {
+      console.log(`Joining lobby ${lobbyId} as ${user.username}`);
       socket.emit("joinLobby", {
         lobbyId,
         username: user.username,
@@ -56,32 +60,48 @@ export default function LobbyRoom() {
       joinedRef.current = true;
     }
 
-    socket.on("lobbyUpdate", (data) => {
+    const handleLobbyUpdate = (data) => {
       setPlayers(data.players);
       setMessage(data.message);
-    });
+    };
 
-    socket.on("colorSelectionError", (data) => {
+    const handleColorError = (data) => {
       setMessage(data.message);
-    });
+    };
 
-    socket.on("playerStateSync", (data) => {
+    const handleStateSync = (data) => {
       setMessage(data.message);
-    });
+    };
 
-    socket.on("gameStarted", (data) => {
+    const handleGameStarted = (data) => {
       console.log("Game started with data:", data);
       localStorage.setItem("mapData", JSON.stringify(data.mapData));
       localStorage.setItem("lobbyPlayers", JSON.stringify(data.players));
       router.push(`/game?lobbyId=${lobbyId}`);
-    });
+    };
 
-    return () => {
+    if (socket) {
+      // Remove any existing listeners first to prevent duplicates
       socket.off("lobbyUpdate");
       socket.off("colorSelectionError");
       socket.off("playerStateSync");
       socket.off("gameStarted");
-      joinedRef.current = false;
+
+      // Add new listeners
+      socket.on("lobbyUpdate", handleLobbyUpdate);
+      socket.on("colorSelectionError", handleColorError);
+      socket.on("playerStateSync", handleStateSync);
+      socket.on("gameStarted", handleGameStarted);
+    }
+
+    return () => {
+      if (socket) {
+        socket.off("lobbyUpdate");
+        socket.off("colorSelectionError");
+        socket.off("playerStateSync");
+        socket.off("gameStarted");
+      }
+      // Don't reset joinedRef.current here, as it might cause multiple joins
       console.log("Cleaning up lobby socket listeners");
     };
   }, [lobbyId, user, loading, router, dispatch, socket]);

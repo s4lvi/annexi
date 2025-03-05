@@ -1,6 +1,5 @@
 // server/targetBattleManager.js
 const { baseCardsMapping } = require("./cardManager");
-
 // Helper: Returns hex grid adjacency offsets based on x coordinate.
 function getHexAdjacencyOffsets(x) {
   return x % 2 === 0
@@ -57,16 +56,7 @@ function findPathBetweenCities(lobby, sourceCity, targetCity, playerId) {
       : null;
     if (structure) {
       if (structure.playerId === playerId) return 1;
-      switch (structure.structure.name) {
-        case "Wall":
-          return 10;
-        case "Watchtower":
-          return 5;
-        case "Archer":
-          return 3;
-        default:
-          return 2;
-      }
+      return structure.structure.health;
     }
     const tileKey = `${x},${y}`;
     const tileOwner = lobby.tileOwnership[tileKey];
@@ -132,8 +122,7 @@ function findPathBetweenCities(lobby, sourceCity, targetCity, playerId) {
   return findPath();
 }
 
-// Simulate battle for a player's battle plan.
-function simulateBattle(lobby, lobbyId, player, io) {
+function simulateBattle(lobby, lobbyId, player, io, onSimulationComplete) {
   console.log("Starting battle simulation for player", player._id);
   const battlePlan = player.battlePlan;
   if (!battlePlan || !battlePlan.path) {
@@ -141,22 +130,15 @@ function simulateBattle(lobby, lobbyId, player, io) {
     return;
   }
 
-  // Get queued army cards.
-  const queuedArmy = battlePlan.queuedArmy || [];
-  if (queuedArmy.length === 0) {
-    console.log("No units queued for player", player._id);
-    return; // Optionally, auto-ready the player here.
-  }
-
-  // Create a battle unit for each queued army card.
-  queuedArmy.forEach((unitCard, index) => {
+  // Create battle units (same as before)…
+  battlePlan.queuedArmy.forEach((unitCard, index) => {
     const battleUnit = {
-      unitId: `${player._id}-${Date.now()}-${Math.random()}`, // Unique identifier.
+      unitId: `${player._id}-${Date.now()}-${Math.random()}`,
       playerId: player._id,
       health: unitCard.health || 100,
       position: { x: battlePlan.path[0].x, y: battlePlan.path[0].y },
       cardId: unitCard.id,
-      speed: unitCard.speed || 0.1,
+      speed: unitCard.speed || 0.1, // Now interpreted as tiles per second
       attackInterval: unitCard.attackInterval || 1000,
       attackDamage: unitCard.attackDamage || 15,
       attackCooldown: 0,
@@ -164,6 +146,7 @@ function simulateBattle(lobby, lobbyId, player, io) {
       currentIndex: 0,
       cityDamage: unitCard.cityDamage || 20,
       isAttacking: false,
+      progress: 0, // <-- New property for movement progress
     };
     console.log(
       `Adding battle unit [${index}] for card ${unitCard.id}:`,
@@ -173,101 +156,38 @@ function simulateBattle(lobby, lobbyId, player, io) {
     lobby.battleUnits.push(battleUnit);
   });
 
-  const tickInterval = 100; // Simulation tick in ms.
+  const tickInterval = 100; // ms per tick
+
   const simulationInterval = setInterval(() => {
-    console.log("=== Simulation tick for lobby", lobbyId, "===");
-    // Iterate over a shallow copy of battle units.
+    let towerEventsForUpdate = [];
+    // Process each battle unit…
     lobby.battleUnits.slice().forEach((unit) => {
-      console.log(
-        `Updating unit ${unit.unitId}: currentIndex=${unit.currentIndex}, health=${unit.health}`
-      );
+      // (Keep your blocking/attack logic here as is.)
 
-      // Check for blocking enemy structure on the next tile.
-      let blockingStructure = null;
-      const nextIndex = unit.currentIndex + 1;
-      if (nextIndex < unit.path.length) {
-        const nextTile = unit.path[nextIndex];
-        if (lobby.structures) {
-          blockingStructure = lobby.structures.find((structure) => {
-            return (
-              structure.x === nextTile.x &&
-              structure.y === nextTile.y &&
-              structure.playerId !== unit.playerId &&
-              structure.structure.name === "Wall"
-            );
-          });
-        }
-        if (blockingStructure) {
-          console.log(
-            `Unit ${unit.unitId} found blocking structure ${blockingStructure.id} at tile (${nextTile.x}, ${nextTile.y})`
-          );
-        } else {
-          console.log(
-            `Unit ${unit.unitId} has no blocker at next tile (${nextTile.x}, ${nextTile.y})`
-          );
-        }
-      } else {
-        console.log(`Unit ${unit.unitId} is at the final tile.`);
+      // Instead of a random chance, use fixed speed movement:
+      const dt = tickInterval / 100; // seconds elapsed per tick
+      unit.progress += unit.speed * dt; // unit.speed is now in tiles/second
+      if (unit.progress >= 1 && unit.currentIndex < unit.path.length - 1) {
+        const steps = Math.floor(unit.progress);
+        unit.currentIndex = Math.min(
+          unit.currentIndex + steps,
+          unit.path.length - 1
+        );
+        unit.progress -= steps;
+        const newTile = unit.path[unit.currentIndex];
+        unit.position = { x: newTile.x, y: newTile.y };
+        console.log(
+          `Unit ${unit.unitId} moved to tile index ${unit.currentIndex} at position (${newTile.x}, ${newTile.y}).`
+        );
       }
 
-      if (blockingStructure) {
-        // Unit stops and attacks the blocking structure.
-        unit.isAttacking = true;
-        if (unit.attackCooldown <= 0) {
-          console.log(
-            `Unit ${unit.unitId} attacks structure ${blockingStructure.id} for ${unit.attackDamage} damage.`
-          );
-          blockingStructure.health -= unit.attackDamage;
-          io.to(`lobby-${lobbyId}`).emit("unitAttackedStructure", {
-            unitId: unit.unitId,
-            structureId: blockingStructure.id,
-            damage: unit.attackDamage,
-            structureHealth: blockingStructure.health,
-          });
-          unit.attackCooldown = unit.attackInterval;
-        } else {
-          console.log(
-            `Unit ${unit.unitId} attack cooldown: ${unit.attackCooldown} ms remaining.`
-          );
-        }
-        unit.attackCooldown -= tickInterval;
-        if (blockingStructure.health <= 0) {
-          console.log(
-            `Structure ${blockingStructure.id} destroyed by unit ${unit.unitId}.`
-          );
-          lobby.structures = lobby.structures.filter(
-            (s) => s.id !== blockingStructure.id
-          );
-          io.to(`lobby-${lobbyId}`).emit("structureDestroyed", {
-            structureId: blockingStructure.id,
-          });
-          unit.isAttacking = false;
-        }
-      } else {
-        // No blocker: unit resumes movement.
-        if (unit.isAttacking) {
-          console.log(
-            `Unit ${unit.unitId} stops attacking and resumes movement.`
-          );
-        }
-        unit.isAttacking = false;
-        if (Math.random() < unit.speed) {
-          unit.currentIndex++;
-          if (unit.currentIndex >= unit.path.length) {
-            unit.currentIndex = unit.path.length - 1;
-          }
-          const newTile = unit.path[unit.currentIndex];
-          unit.position = { x: newTile.x, y: newTile.y };
-          console.log(
-            `Unit ${unit.unitId} moved to tile index ${unit.currentIndex} at position (${newTile.x}, ${newTile.y}).`
-          );
-        }
-      }
-
-      // Process defensive structures (e.g., Watchtowers) attacking the unit.
+      // Process defensive structures (adjusting for friendly fire, etc.)…
       if (lobby.structures) {
         lobby.structures.forEach((structure) => {
           if (structure.structure.type === "defensive") {
+            // Prevent friendly fire:
+            if (structure.playerId === unit.playerId) return;
+
             const stats = baseCardsMapping[structure.structure.id] || {};
             const range = stats.attackRange || 0;
             const damage = stats.attackDamage || 0;
@@ -284,12 +204,17 @@ function simulateBattle(lobby, lobbyId, player, io) {
                   `Defensive structure ${structure.id} fires at unit ${unit.unitId} for ${damage} damage.`
                 );
                 unit.health -= damage;
-                io.to(`lobby-${lobbyId}`).emit("towerFired", {
+
+                // Add to collection instead of emitting
+                towerEventsForUpdate.push({
                   towerId: structure.id,
                   damage,
                   unitId: unit.unitId,
                   unitHealth: unit.health,
+                  x: structure.x,
+                  y: structure.y,
                 });
+
                 structure.attackCooldown = interval;
               } else {
                 console.log(
@@ -312,7 +237,7 @@ function simulateBattle(lobby, lobbyId, player, io) {
       console.log(`Removed ${numBefore - numAfter} defeated unit(s).`);
     }
 
-    // Check for units that have reached the target.
+    // Check for units that have reached their target.
     const reachedTarget = lobby.battleUnits.filter(
       (unit) => unit.currentIndex >= unit.path.length - 1
     );
@@ -331,17 +256,21 @@ function simulateBattle(lobby, lobbyId, player, io) {
     });
 
     // Emit aggregated update.
-    console.log("Emitting battle update to lobby", lobbyId);
     io.to(`lobby-${lobbyId}`).emit("battleUpdate", {
       battleUnits: lobby.battleUnits,
+      towerEvents: towerEventsForUpdate,
     });
 
+    // When no units remain, finish the simulation.
     if (lobby.battleUnits.length === 0) {
       console.log("No active battle units remain. Stopping simulation loop.");
       io.to(`lobby-${lobbyId}`).emit("battleFinished", {
         message: "Battle phase complete.",
       });
       clearInterval(simulationInterval);
+      if (typeof onSimulationComplete === "function") {
+        onSimulationComplete();
+      }
     }
   }, tickInterval);
 }

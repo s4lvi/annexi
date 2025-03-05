@@ -11,22 +11,21 @@ export default function ReadyButton({
   const [isHovered, setIsHovered] = useState(false);
   const [isBattle, setIsBattle] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [cooldown, setCooldown] = useState(false);
   const { state } = useGameState();
   const { currentPlayerId, players } = state;
   const currentPlayer = players.find((p) => p._id === currentPlayerId);
   const color = currentPlayer.color;
 
-  // Detect battle step changes to trigger animations
+  // Detect battle phase changes to trigger animations.
   useEffect(() => {
     if (currentStep === 6 && !isBattle) {
-      // Entering battle phase
       setIsAnimating(true);
       setTimeout(() => {
         setIsBattle(true);
         setIsAnimating(false);
       }, 500);
     } else if (currentStep !== 6 && isBattle) {
-      // Exiting battle phase
       setIsAnimating(true);
       setTimeout(() => {
         setIsBattle(false);
@@ -35,10 +34,21 @@ export default function ReadyButton({
     }
   }, [currentStep, isBattle]);
 
+  // Wrap the onClick handler with cooldown logic.
+  const handleClick = () => {
+    if (!cooldown && !isReady && !isBattle) {
+      onClick();
+      setCooldown(true);
+      setTimeout(() => {
+        setCooldown(false);
+      }, 1000); // 1 second cooldown
+    }
+  };
+
   return (
     <div
-      onClick={!isReady && !isBattle ? onClick : null}
-      onMouseEnter={() => setIsHovered(true && !isBattle)}
+      onClick={handleClick}
+      onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={{
         position: "fixed",
@@ -51,8 +61,14 @@ export default function ReadyButton({
         minWidth: "128px",
         minHeight: "128px",
         borderRadius: "50%",
-        border: isBattle ? `1em solid #dc2626` : `1em solid ${color.hexString}`,
-        backgroundColor: isBattle
+        border: cooldown
+          ? "1em solid grey"
+          : isBattle
+          ? "1em solid #dc2626"
+          : `1em solid ${color.hexString}`,
+        backgroundColor: cooldown
+          ? "rgba(128, 128, 128, 0.5)"
+          : isBattle
           ? "rgba(220, 38, 38, 0.8)" // red with transparency
           : "rgba(17, 24, 39, 0.5)", // gray-900 with transparency
         display: "flex",
@@ -60,7 +76,7 @@ export default function ReadyButton({
         justifyContent: "center",
         color: "#fff",
         fontWeight: "bold",
-        cursor: isReady || isBattle ? "default" : "pointer",
+        cursor: cooldown || isReady || isBattle ? "default" : "pointer",
         zIndex: 1000,
         boxShadow: isBattle
           ? "0 0 20px rgba(220, 38, 38, 0.6)"

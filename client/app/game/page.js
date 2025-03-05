@@ -47,7 +47,7 @@ export default function GameContainer() {
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
   const phaserGameRef = useRef(null);
-  const socket = useSocket();
+  const { socket } = useSocket();
   const toggleUiVisibility = (visible) => {
     console.log("Toggling UI visibility to:", visible);
     setUiVisible(visible);
@@ -384,13 +384,14 @@ export default function GameContainer() {
 
     socket.on("battleUpdate", (data) => {
       console.log("Battle update received:", data);
-      // Update global battle units.
-      dispatch({ type: "UPDATE_BATTLE_UNITS", payload: data.battleUnits });
-    });
 
-    socket.on("towerFired", (data) => {
-      console.log("Tower fired:", data);
-      // Optionally, update global state or show a visual effect.
+      // Update battle units
+      dispatch({ type: "UPDATE_BATTLE_UNITS", payload: data.battleUnits });
+
+      // Add tower events to the state if present
+      if (data.towerEvents && data.towerEvents.length > 0) {
+        dispatch({ type: "ADD_TOWER_EVENTS", payload: data.towerEvents });
+      }
     });
 
     socket.on("unitAttackedStructure", (data) => {

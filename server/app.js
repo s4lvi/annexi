@@ -17,6 +17,7 @@ const cardRoutes = require("./routes/card");
 const deckRoutes = require("./routes/deck");
 const profileRoutes = require("./routes/profile");
 const shopRoutes = require("./routes/shop");
+const adminRoute = require("./routes/admin");
 
 // Connect to MongoDB
 mongoose
@@ -30,11 +31,7 @@ mongoose
     const Lobby = require("./models/lobby");
     const GameMatch = require("./models/gameMatch");
     const User = require("./models/user");
-    Promise.all([
-      Lobby.deleteMany({}),
-      GameMatch.deleteMany({}),
-      User.deleteMany({}),
-    ])
+    Promise.all([Lobby.deleteMany({}), GameMatch.deleteMany({})])
       .then(() => {
         console.log("Cleared all lobbies and game matches.");
       })
@@ -67,6 +64,7 @@ app.use("/api/cards", cardRoutes);
 app.use("/api/decks", deckRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/shop", shopRoutes);
+app.use("/api/admin", adminRoute);
 
 // Basic route for checking server status
 app.get("/api/status", (req, res) => {

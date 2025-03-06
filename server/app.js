@@ -5,7 +5,7 @@ const socketio = require("socket.io");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const dotenv = require("dotenv");
-
+const path = require("path");
 // Load environment variables
 dotenv.config();
 
@@ -31,7 +31,11 @@ mongoose
     const Lobby = require("./models/lobby");
     const GameMatch = require("./models/gameMatch");
     const User = require("./models/user");
-    Promise.all([Lobby.deleteMany({}), GameMatch.deleteMany({})])
+    Promise.all([
+      Lobby.deleteMany({}),
+      GameMatch.deleteMany({}),
+      //User.deleteMany({}),
+    ])
       .then(() => {
         console.log("Cleared all lobbies and game matches.");
       })
@@ -54,6 +58,7 @@ const io = socketio(server, {
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
 app.use(express.urlencoded({ extended: true }));
 
 // Register routes
@@ -65,6 +70,26 @@ app.use("/api/decks", deckRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/shop", shopRoutes);
 app.use("/api/admin", adminRoute);
+
+app.use("/cards", express.static(path.join(__dirname, "public/cards")));
+// Serve card icons
+app.use(
+  "/card-icons",
+  express.static(path.join(__dirname, "public/card-icons"))
+);
+// Serve animations
+app.use(
+  "/animations/moving",
+  express.static(path.join(__dirname, "public/animations/moving"))
+);
+app.use(
+  "/animations/attacking",
+  express.static(path.join(__dirname, "public/animations/attacking"))
+);
+app.use(
+  "/animations/death",
+  express.static(path.join(__dirname, "public/animations/death"))
+);
 
 // Basic route for checking server status
 app.get("/api/status", (req, res) => {

@@ -18,54 +18,67 @@ export default function LoginPage() {
   const router = useRouter();
   const { user, loading, login, logout } = useAuth();
 
+  // Track if we've already cleared the guest session
+  const [guestCleared, setGuestCleared] = useState(false);
+
   useEffect(() => {
     // Prevent infinite redirects
     if (loading) return;
 
     // If user is already logged in with a real account, redirect to lobby
     if (user && !user.isGuest) {
+      console.log("User is already logged in, redirecting to lobby", user);
       router.push("/lobby");
       return;
     }
 
-    // If user is a guest account, log them out so they can log in with a real account
-    if (user && user.isGuest) {
-      // Just remove the user from state and localStorage, but don't redirect
-      localStorage.removeItem("user");
-      // We don't call the full logout here since it would navigate away
+    // Clear guest user once - only do this once per component mount
+    // Pass option to prevent redirect when clearing guest session
+    if (user && user.isGuest && !guestCleared) {
+      console.log("Clearing guest account");
+      logout({ preventRedirect: true });
+      setGuestCleared(true);
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, logout, guestCleared]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setMessage("");
 
-    const endpoint =
-      mode === "login"
-        ? `${process.env.NEXT_PUBLIC_BACKEND_URL}api/auth/login`
-        : `${process.env.NEXT_PUBLIC_BACKEND_URL}api/auth/register`;
-
-    const body =
-      mode === "login"
-        ? JSON.stringify({ username, password })
-        : JSON.stringify({ username, email, password });
-
     try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
+      const endpoint =
+        mode === "login" ? "api/auth/login" : "api/auth/register";
+      const body =
+        mode === "login"
+          ? JSON.stringify({ username, password })
+          : JSON.stringify({ username, email, password });
+
+      console.log(`Submitting to ${endpoint} with:`, {
+        username,
+        password: "****",
       });
+
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}${endpoint}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }
+      );
+
       const data = await res.json();
+
       if (res.ok) {
         login(data.user);
         router.push("/lobby");
       } else {
         setMessage(data.message || "Authentication failed");
+        console.error("Authentication error:", data);
       }
     } catch (err) {
-      console.error(err);
+      console.error("Error during authentication:", err);
       setMessage("Error connecting to server");
     } finally {
       setIsLoading(false);

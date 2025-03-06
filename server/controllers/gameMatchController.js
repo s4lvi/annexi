@@ -3,7 +3,7 @@ const GameMatch = require("../models/gameMatch");
 const Lobby = require("../models/lobby");
 const { generateRandomMap } = require("../utils/mapGenerator");
 const gameStateManager = require("../gameStateManager");
-const { getDefaultDeck } = require("./deckService");
+const { getUserDefaultDeck } = require("./deckService");
 const { getCardsByIds } = require("./cardService");
 
 exports.startMatch = async (req, res) => {
@@ -30,7 +30,7 @@ exports.startMatch = async (req, res) => {
     for (const playerId of players) {
       try {
         // Get the player's default deck
-        const deck = await getDefaultDeck(playerId);
+        const deck = await getUserDefaultDeck(playerId);
 
         // Get the full card details for each card in the deck
         const cardDetails = await getCardsByIds(deck.cards);

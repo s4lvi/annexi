@@ -1,7 +1,8 @@
 // server/services/deckService.js
 const User = require("../models/user");
 const Card = require("../models/card");
-const { starterDeck } = require("../seedDatabase");
+const GlobalSettings = require("../models/globalSettings");
+const { getDefaultDeck } = require("./cardService");
 
 // Constants for deck validation
 const MAX_DECK_SIZE = 30;
@@ -272,13 +273,29 @@ const initializeUserDecks = async (userId) => {
       return user.decks;
     }
 
-    // Create a starter deck
-    user.decks.push({
-      name: "Starter Deck",
-      description: "Basic deck for new players",
-      cards: starterDeck,
-      isDefault: true,
-    });
+    // Get default deck configuration from database
+    const defaultDeckCards = await getDefaultDeck();
+
+    if (!defaultDeckCards || defaultDeckCards.length === 0) {
+      console.warn(
+        "No default deck configuration found. Creating empty starter deck."
+      );
+      // Create an empty starter deck
+      user.decks.push({
+        name: "Starter Deck",
+        description: "Basic deck for new players",
+        cards: [],
+        isDefault: true,
+      });
+    } else {
+      // Create a starter deck with the default cards
+      user.decks.push({
+        name: "Starter Deck",
+        description: "Basic deck for new players",
+        cards: defaultDeckCards,
+        isDefault: true,
+      });
+    }
 
     await user.save();
     return user.decks;
@@ -289,7 +306,7 @@ const initializeUserDecks = async (userId) => {
 };
 
 // Get the default deck for a user
-const getDefaultDeck = async (userId) => {
+const getUserDefaultDeck = async (userId) => {
   try {
     const user = await User.findById(userId);
     if (!user) {
@@ -323,5 +340,5 @@ module.exports = {
   setDefaultDeck,
   validateDeck,
   initializeUserDecks,
-  getDefaultDeck,
+  getUserDefaultDeck,
 };

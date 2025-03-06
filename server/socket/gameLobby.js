@@ -1,7 +1,7 @@
 // server/gameLobby.js
 const mongoose = require("mongoose");
 const cardManager = require("./cardManager");
-const { getDefaultDeck } = require("../controllers/deckService");
+const { getUserDefaultDeck } = require("../controllers/deckService");
 const { getCardsByIds } = require("../controllers/cardService");
 
 const PLAYER_COLORS = [
@@ -45,7 +45,7 @@ function initLobby(lobbyId) {
 async function getPlayerDeck(userId) {
   try {
     // Try to get the player's default deck
-    const defaultDeck = await getDefaultDeck(userId);
+    const defaultDeck = await getUserDefaultDeck(userId);
 
     if (defaultDeck && defaultDeck.cards && defaultDeck.cards.length > 0) {
       console.log(`Using player's default deck: ${defaultDeck.name}`);
@@ -67,7 +67,7 @@ async function getPlayerDeck(userId) {
   // Fallback to standard deck if no user deck is available or on error
   console.log(`Using fallback standard deck for player ${userId}`);
   return {
-    deck: cardManager.initializePlayerDeck(),
+    deck: cardManager.initializePlayerDeckFromUserDeck(),
     deckId: null,
     deckName: "Standard Deck",
   };
@@ -181,7 +181,7 @@ async function registerHandlers(socket, io, lobbies) {
       // If player doesn't have a deck (unlikely with our new system, but as a fallback)
       if (!player.deck || Object.keys(player.deck).length === 0) {
         console.log(`Player ${player.username} has no deck, using fallback`);
-        player.deck = cardManager.initializePlayerDeck();
+        player.deck = cardManager.initializePlayerDeckFromUserDeck();
       }
 
       // Deal initial hand

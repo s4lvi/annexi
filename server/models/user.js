@@ -1,5 +1,6 @@
 // server/models/user.js
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 
 const ownedCardSchema = new mongoose.Schema({
   cardId: {
@@ -73,6 +74,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  isAdmin: {
+    type: Boolean,
+    default: false,
+  },
   currency: {
     type: Number,
     default: 500, // Starting currency
@@ -92,6 +97,32 @@ const userSchema = new mongoose.Schema({
     default: Date.now,
   },
 });
+
+// Password hashing middleware
+userSchema.pre("save", async function (next) {
+  try {
+    // Only hash the password if it's been modified or is new
+    if (!this.isModified("password")) return next();
+
+    // Generate a salt and hash the password
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Method to compare password for login
+userSchema.methods.comparePassword = async function (candidatePassword) {
+  try {
+    // bcrypt.compare will handle the string comparison with the hashed password
+    return await bcrypt.compare(candidatePassword, this.password);
+  } catch (error) {
+    console.error("Error comparing passwords:", error);
+    throw error;
+  }
+};
 
 // Pre-save middleware to calculate win rate
 userSchema.pre("save", function (next) {

@@ -23,7 +23,7 @@ const GameCard = ({
   needsResource = true,
   halfSize = false, // new prop to control size
 }) => {
-  const { id, name, type, cost, effect } = card;
+  const { id, name, type, cost, effect, imageUrl } = card;
   const canAfford = currentProduction >= cost.production;
   const borderColor = cardTypeColors[type] || "border-gray-400";
   const gradientBg =
@@ -36,7 +36,14 @@ const GameCard = ({
       onClick(e);
     }
   };
-
+  const getImageUrl = () => {
+    if (imageUrl) {
+      // Use the backend URL to construct the full path
+      return `${process.env.NEXT_PUBLIC_BACKEND_URL}${imageUrl}`;
+    }
+    // Fallback to a placeholder or default image
+    return "/card-placeholder.png";
+  };
   // Set classes based on halfSize flag.
   const outerClass = halfSize ? "w-36 flex-shrink-0" : "w-72 flex-shrink-0";
   const innerWidth = halfSize ? "w-32" : "w-64";
@@ -59,7 +66,7 @@ const GameCard = ({
         {/* Card image section */}
         <div
           className="h-3/5 bg-cover bg-center"
-          style={{ backgroundImage: `url(/${id}.png)` }}
+          style={{ backgroundImage: `url(${getImageUrl()})` }}
         />
 
         {/* Card content section */}

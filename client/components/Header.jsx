@@ -10,6 +10,7 @@ import {
   ShoppingCart,
   User,
   CreditCard,
+  Shield,
 } from "lucide-react";
 import Image from "next/image";
 import { useAuth } from "@/components/AuthContext";
@@ -81,6 +82,15 @@ export default function Header() {
                 <User className="w-4 h-4" />
                 <span>Profile</span>
               </button>
+              {user.isAdmin && (
+                <button
+                  onClick={() => navigateTo("/admin")}
+                  className="text-neutral-300 hover:text-purple-400 flex items-center gap-1 transition-colors"
+                >
+                  <Shield className="w-4 h-4" />
+                  <span>Admin</span>
+                </button>
+              )}
             </nav>
           )}
 

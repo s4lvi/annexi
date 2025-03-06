@@ -1,7 +1,10 @@
 // server/socket/cardCollectionHandlers.js
 const User = require("../models/user");
 const { getUserCards } = require("../controllers/cardService");
-const { getUserDecks, getDefaultDeck } = require("../controllers/deckService");
+const {
+  getUserDecks,
+  getUserDefaultDeck,
+} = require("../controllers/deckService");
 
 // Handle request for user's cards
 async function handleGetUserCards(socket, data) {
@@ -67,7 +70,7 @@ async function handleGetDefaultDeck(socket, data) {
       return;
     }
 
-    const deck = await getDefaultDeck(userId);
+    const deck = await getUserDefaultDeck(userId);
 
     socket.emit("defaultDeckResponse", {
       success: true,

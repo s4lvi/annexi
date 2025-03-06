@@ -39,7 +39,7 @@ export function AuthProvider({ children }) {
     initUser();
 
     // Add storage event listener to sync user across tabs
-    window.addEventListener("storage", (event) => {
+    const handleStorageChange = (event) => {
       if (event.key === "user") {
         try {
           setUser(event.newValue ? JSON.parse(event.newValue) : null);
@@ -47,7 +47,14 @@ export function AuthProvider({ children }) {
           console.error("Error syncing user across tabs:", error);
         }
       }
-    });
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+
+    // Clean up event listener on unmount
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+    };
   }, []);
 
   // Login function
@@ -60,18 +67,28 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // Logout function
-  const logout = () => {
+  // Logout function with option to prevent redirect
+  const logout = (options = {}) => {
+    console.log("Logging out user");
     try {
+      // First remove from localStorage
       localStorage.removeItem("user");
+
+      // Then update the state
       setUser(null);
-      router.push("/");
+
+      // Only redirect if not explicitly prevented
+      if (!options.preventRedirect) {
+        setTimeout(() => {
+          router.push("/");
+        }, 100);
+      }
     } catch (error) {
-      console.error("Error removing user from localStorage:", error);
+      console.error("Error during logout:", error);
     }
   };
 
-  // Create guest account
+  // Create guest account - only when explicitly called
   const createGuestAccount = () => {
     const guestId = generateHexId();
     const guestUser = {
@@ -83,11 +100,10 @@ export function AuthProvider({ children }) {
     return guestUser;
   };
 
-  // Check and recover user if needed
+  // Check and recover user if needed - but don't automatically create guests
   const ensureUser = () => {
     if (!user) {
-      // User is missing, create a guest user as fallback
-      return createGuestAccount();
+      return null;
     }
     return user;
   };

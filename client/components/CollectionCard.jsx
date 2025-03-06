@@ -24,8 +24,8 @@ const CollectionCard = ({
     inGameCost = {},
     shopCost = 0,
     ownedCount = 0,
+    imageUrl, // Use the imageUrl from the card object
   } = card;
-
   // Get styles based on card rarity
   const rarityStyles = getCardRarityStyles(rarity);
 
@@ -47,6 +47,16 @@ const CollectionCard = ({
   const effectClass = compact
     ? "text-xs line-clamp-2"
     : "text-sm my-1 flex-grow";
+
+  // Get the correct image URL - use the stored imageUrl or fallback to a default
+  const getImageUrl = () => {
+    if (imageUrl) {
+      // Use the backend URL to construct the full path
+      return `${process.env.NEXT_PUBLIC_BACKEND_URL}${imageUrl.slice(1)}`;
+    }
+    // Fallback to a placeholder or default image
+    return `${process.env.NEXT_PUBLIC_BACKEND_URL}cards/card-placeholder.png`;
+  };
 
   // Handle card click
   const handleCardClick = (e) => {
@@ -100,7 +110,7 @@ const CollectionCard = ({
         {/* Card image section */}
         <div
           className={`${imageSizeClass} bg-cover bg-center`}
-          style={{ backgroundImage: `url(/${id}.png)` }}
+          style={{ backgroundImage: `url(${getImageUrl()})` }}
         />
 
         {/* Owned count badge */}

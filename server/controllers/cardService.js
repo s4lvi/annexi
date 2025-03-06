@@ -1,7 +1,7 @@
 // server/services/cardService.js
 const Card = require("../models/card");
 const User = require("../models/user");
-const { starterDeck } = require("../seedDatabase");
+const GlobalSettings = require("../models/globalSettings");
 
 // Get all cards in the repository
 const getAllCards = async () => {
@@ -63,12 +63,12 @@ const getUserCards = async (userId) => {
 
     // Get all card IDs owned by the user
     const cardIds = user.ownedCards.map((ownedCard) => ownedCard.cardId);
-    console.log("User's owned card IDs:", cardIds);
-    // Fetch the full card details
-    const cards = await Card.find({ id: { $in: cardIds } });
+
+    // Find all cards in database
+    const allCards = await Card.find();
 
     // Combine card details with owned quantity
-    return cards.map((card) => {
+    return allCards.map((card) => {
       const ownedCard = user.ownedCards.find((oc) => oc.cardId === card.id);
       return {
         ...card.toObject(),
@@ -152,9 +152,21 @@ const removeCardsFromUser = async (userId, cardId, count = 1) => {
 };
 
 // Initialize a new user with starter cards
-
 const initializeUserCards = async (userId) => {
   try {
+    // Get default starter deck from global settings
+    const defaultDeckSetting = await GlobalSettings.findOne({
+      key: "starterDeck",
+    });
+    const starterDeck = defaultDeckSetting ? defaultDeckSetting.value : [];
+
+    if (!starterDeck || starterDeck.length === 0) {
+      console.warn(
+        "No starter deck defined in global settings. New users will not receive starter cards."
+      );
+      return;
+    }
+
     // Count the frequency of each card in the starterDeck array
     const cardCountMap = {};
     starterDeck.forEach((cardId) => {
@@ -167,15 +179,21 @@ const initializeUserCards = async (userId) => {
       throw new Error("User not found");
     }
 
-    // (Optional) Clear existing owned cards if necessary
+    // Clear existing owned cards if necessary
     user.ownedCards = [];
 
     // Set ownedCards based on the frequency counts
     for (const cardId in cardCountMap) {
-      user.ownedCards.push({
-        cardId,
-        count: cardCountMap[cardId],
-      });
+      // Verify card exists in database
+      const cardExists = await Card.findOne({ id: cardId });
+      if (cardExists) {
+        user.ownedCards.push({
+          cardId,
+          count: cardCountMap[cardId],
+        });
+      } else {
+        console.warn(`Card with ID ${cardId} not found in database, skipping`);
+      }
     }
 
     await user.save();
@@ -192,6 +210,53 @@ const initializeUserCards = async (userId) => {
   }
 };
 
+// Get default deck from global settings
+const getDefaultDeck = async () => {
+  try {
+    const defaultDeckSetting = await GlobalSettings.findOne({
+      key: "starterDeck",
+    });
+    return defaultDeckSetting ? defaultDeckSetting.value : [];
+  } catch (error) {
+    console.error("Error getting default deck:", error);
+    throw error;
+  }
+};
+
+// Update default deck in global settings
+const updateDefaultDeck = async (deck, userId) => {
+  try {
+    if (!deck || !Array.isArray(deck)) {
+      throw new Error("Invalid deck format");
+    }
+
+    // Verify all cards in deck exist
+    for (const cardId of deck) {
+      const cardExists = await Card.findOne({ id: cardId });
+      if (!cardExists) {
+        throw new Error(`Card with ID ${cardId} not found in database`);
+      }
+    }
+
+    // Update or create the default deck setting
+    await GlobalSettings.findOneAndUpdate(
+      { key: "starterDeck" },
+      {
+        key: "starterDeck",
+        value: deck,
+        updatedBy: userId,
+        updatedAt: new Date(),
+      },
+      { upsert: true, new: true }
+    );
+
+    return { success: true, message: "Default deck updated successfully" };
+  } catch (error) {
+    console.error("Error updating default deck:", error);
+    throw error;
+  }
+};
+
 module.exports = {
   getAllCards,
   getCardById,
@@ -202,4 +267,6 @@ module.exports = {
   addCardsToUser,
   removeCardsFromUser,
   initializeUserCards,
+  getDefaultDeck,
+  updateDefaultDeck,
 };
